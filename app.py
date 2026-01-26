@@ -180,10 +180,11 @@ def display_results(results: dict, risk_level: str, risk_score: int,
             st.write(f"- {error}")
     
     # Tabs for different detection types
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔍 Invisible Text",
         "🎯 YARA Matches",
         "🧠 Semantic Detection",
+        "🔒 Privacy",
         "📋 Summary"
     ])
     
@@ -197,6 +198,9 @@ def display_results(results: dict, risk_level: str, risk_score: int,
         display_semantic_results(results, show_technical, semantic_threshold)
     
     with tab4:
+        display_privacy_results(results, show_technical)
+    
+    with tab5:
         display_summary(results, risk_level, risk_score)
 
 
@@ -293,12 +297,117 @@ def display_semantic_results(results: dict, show_technical: bool, threshold: flo
                     st.write(f"**Index:** {detection.get('index', 'N/A')}")
 
 
+def display_privacy_results(results: dict, show_technical: bool):
+    """Display privacy (PII) and structural risk detection results"""
+    st.subheader("Privacy & Structural Analysis")
+    
+    # PII Detection Section
+    st.markdown("#### PII (Personally Identifiable Information)")
+    pii_detections = results.get('pii_detections', {})
+    
+    if not pii_detections or all(count == 0 for count in pii_detections.values()):
+        st.success("✅ No PII detected")
+    else:
+        st.warning("⚠️ PII found in document")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Email Addresses",
+                pii_detections.get('EMAIL_ADDRESS', 0),
+                help="Number of email addresses detected"
+            )
+        
+        with col2:
+            st.metric(
+                "Phone Numbers",
+                pii_detections.get('PHONE_NUMBER', 0),
+                help="Number of phone numbers detected"
+            )
+        
+        with col3:
+            st.metric(
+                "Person Names",
+                pii_detections.get('PERSON', 0),
+                help="Number of person names detected"
+            )
+    
+    # Structural Risks Section
+    st.markdown("#### Structural Risks")
+    structural_risks = results.get('structural_risks', {})
+    
+    # Check for error
+    if 'error' in structural_risks:
+        st.error(f"⚠️ Structural analysis error: {structural_risks['error']}")
+    
+    # Display dangerous tags
+    has_risks = False
+    for tag in ['/JS', '/JavaScript', '/AA', '/OpenAction']:
+        count = structural_risks.get(tag, 0)
+        if count > 0:
+            has_risks = True
+    
+    if not has_risks:
+        st.success("✅ No dangerous structural elements detected")
+    else:
+        st.error("🚨 Dangerous structural elements found!")
+    
+    # Always show the metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        js_count = structural_risks.get('/JS', 0)
+        st.metric(
+            "/JS",
+            js_count,
+            help="JavaScript code references",
+            delta="⚠️ Risk" if js_count > 0 else None
+        )
+    
+    with col2:
+        javascript_count = structural_risks.get('/JavaScript', 0)
+        st.metric(
+            "/JavaScript",
+            javascript_count,
+            help="JavaScript actions",
+            delta="⚠️ Risk" if javascript_count > 0 else None
+        )
+    
+    with col3:
+        aa_count = structural_risks.get('/AA', 0)
+        st.metric(
+            "/AA",
+            aa_count,
+            help="Additional Actions (auto-execute)",
+            delta="⚠️ Risk" if aa_count > 0 else None
+        )
+    
+    with col4:
+        openaction_count = structural_risks.get('/OpenAction', 0)
+        st.metric(
+            "/OpenAction",
+            openaction_count,
+            help="Actions executed on document open",
+            delta="⚠️ Risk" if openaction_count > 0 else None
+        )
+    
+    if has_risks:
+        st.warning("""
+        **⚠️ Security Warning:**  
+        These structural elements can execute code automatically when the PDF is opened.
+        - **/JS** and **/JavaScript**: Can run arbitrary JavaScript code
+        - **/AA**: Additional Actions that auto-execute
+        - **/OpenAction**: Actions triggered when document is opened
+        """)
+
+
 def display_summary(results: dict, risk_level: str, risk_score: int):
     """Display analysis summary"""
     st.subheader("Analysis Summary")
     
     # Create summary metrics
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
@@ -316,6 +425,15 @@ def display_summary(results: dict, risk_level: str, risk_score: int):
         st.metric(
             "Semantic Detections",
             len(results.get('semantic_detections', []))
+        )
+    
+    with col4:
+        # Count total PII instances
+        pii_detections = results.get('pii_detections', {})
+        total_pii = sum(pii_detections.values()) if pii_detections else 0
+        st.metric(
+            "PII Instances",
+            total_pii
         )
     
     # Recommendations
@@ -347,6 +465,8 @@ def display_summary(results: dict, risk_level: str, risk_score: int):
         - Reviewing all invisible text
         - Checking YARA matches
         - Analyzing semantic detections
+        - Reviewing structural risks (especially /JS and /JavaScript tags)
+        - Checking for PII exposure
         - Contacting security team if necessary
         """)
     
