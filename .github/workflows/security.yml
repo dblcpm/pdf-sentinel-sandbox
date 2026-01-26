@@ -12,6 +12,9 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     
+    permissions:
+      contents: read  # Minimal permissions for security
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
