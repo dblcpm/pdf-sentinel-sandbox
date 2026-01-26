@@ -22,5 +22,5 @@ services:
     read_only: true
     # Secure temp storage: allow writing only where necessary
     tmpfs:
-      - /tmp  # For PDF processing
-      - /home/appuser/.cache  # For model caching
+      - /tmp:size=2G  # For PDF processing
+      - /home/appuser/.cache:size=1G  # For model caching (DoS protection)

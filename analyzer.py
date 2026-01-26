@@ -19,8 +19,14 @@ from presidio_analyzer import AnalyzerEngine
 
 # CPU Efficiency Failsafe: Default to 2 threads to prevent container lockups
 # This is critical for deployments on limited CPU hardware (e.g., Hugging Face Spaces)
-max_threads = int(os.getenv('MAX_CPU_THREADS', '2'))
-torch.set_num_threads(max_threads)
+try:
+    max_threads = int(os.getenv('MAX_CPU_THREADS', '2'))
+    if max_threads <= 0:
+        max_threads = 2
+    torch.set_num_threads(max_threads)
+except (ValueError, TypeError):
+    # Fallback to safe default if env var is invalid
+    torch.set_num_threads(2)
 
 
 class PDFAnalyzer:

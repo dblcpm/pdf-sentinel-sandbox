@@ -26,13 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pip-audit
       
-      - name: Generate requirements.txt from requirements.in
+      - name: Run pip-audit vulnerability scan on requirements.in
         run: |
-          # Install pip-tools to compile requirements.in
-          pip install pip-tools
-          # Compile requirements.in to requirements.txt
-          pip-compile requirements.in --output-file requirements.txt
-      
-      - name: Run pip-audit vulnerability scan
-        run: |
-          pip-audit -r requirements.txt
+          # Scan requirements.in directly to avoid compilation overhead
+          pip-audit -r requirements.in
