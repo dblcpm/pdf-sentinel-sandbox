@@ -30,6 +30,7 @@ class PDFAnalyzer:
         self.yara_rules = None
         self.embedding_model = None
         self.enable_semantic = enable_semantic
+        self.embedding_available = False
         
         # Load YARA rules if file exists
         if os.path.exists(yara_rules_path):
@@ -50,16 +51,16 @@ class PDFAnalyzer:
     def load_embedding_model(self):
         """Lazy load the embedding model to save memory"""
         if not self.enable_semantic:
-            self.embedding_model = False
             return
         
         if self.embedding_model is None:
             try:
                 self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                self.embedding_available = True
             except Exception as e:
                 print(f"Warning: Could not load embedding model: {e}")
                 print("Semantic detection will be disabled")
-                self.embedding_model = False  # Mark as unavailable
+                self.embedding_available = False
     
     def uncompress_pdf(self, pdf_path: str, output_path: str) -> Tuple[bool, str]:
         """
@@ -256,8 +257,8 @@ class PDFAnalyzer:
         # Load model lazily
         self.load_embedding_model()
         
-        # If model failed to load, return empty list
-        if self.embedding_model is False:
+        # If model is not available, return empty list
+        if not self.embedding_available:
             return []
         
         detections = []
@@ -361,7 +362,7 @@ class PDFAnalyzer:
                     all_text += "\n" + inv_text['content']
             
             # Semantic injection detection (skip if disabled or unavailable)
-            if self.embedding_model is not False:
+            if self.enable_semantic:
                 results['semantic_detections'] = self.detect_semantic_injection(all_text)
             else:
                 results['semantic_detections'] = []
