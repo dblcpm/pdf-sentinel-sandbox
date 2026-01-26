@@ -10,6 +10,10 @@ from pathlib import Path
 from analyzer import PDFAnalyzer
 
 
+# Check if semantic detection should be enabled
+ENABLE_SEMANTIC = os.getenv('ENABLE_SEMANTIC_DETECTION', 'true').lower() in ('true', '1', 'yes')
+
+
 def main():
     """Main Streamlit application"""
     
@@ -39,6 +43,12 @@ def main():
         - 🛡️ Hidden commands
         """)
         
+        if not ENABLE_SEMANTIC:
+            st.warning("""
+            ⚠️ **Semantic Detection Disabled**  
+            Set ENABLE_SEMANTIC_DETECTION=true to enable
+            """)
+        
         st.header("Settings")
         semantic_threshold = st.slider(
             "Semantic Detection Threshold",
@@ -46,7 +56,8 @@ def main():
             max_value=0.95,
             value=0.7,
             step=0.05,
-            help="Higher values = stricter detection"
+            help="Higher values = stricter detection",
+            disabled=not ENABLE_SEMANTIC
         )
         
         show_technical = st.checkbox(
@@ -101,7 +112,7 @@ def analyze_pdf_file(uploaded_file, semantic_threshold: float, show_technical: b
                 f.write(uploaded_file.getbuffer())
             
             # Initialize analyzer
-            analyzer = PDFAnalyzer(yara_rules_path="signatures.yara")
+            analyzer = PDFAnalyzer(yara_rules_path="signatures.yara", enable_semantic=ENABLE_SEMANTIC)
             
             # Perform analysis
             results = analyzer.analyze_pdf(temp_pdf_path)
@@ -246,6 +257,11 @@ def display_yara_results(results: dict, show_technical: bool):
 def display_semantic_results(results: dict, show_technical: bool, threshold: float):
     """Display semantic injection detection results"""
     st.subheader("Semantic Prompt Injection Detection")
+    
+    if not ENABLE_SEMANTIC:
+        st.info("ℹ️ Semantic detection is disabled. Enable it with ENABLE_SEMANTIC_DETECTION=true environment variable.")
+        return
+    
     st.caption(f"Using threshold: {threshold}")
     
     semantic_detections = results.get('semantic_detections', [])

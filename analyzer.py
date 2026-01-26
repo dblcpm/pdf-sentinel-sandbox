@@ -18,16 +18,18 @@ import numpy as np
 class PDFAnalyzer:
     """Main analyzer class for PDF forensic analysis"""
     
-    def __init__(self, yara_rules_path: str = "signatures.yara"):
+    def __init__(self, yara_rules_path: str = "signatures.yara", enable_semantic: bool = True):
         """
         Initialize the PDF analyzer
         
         Args:
             yara_rules_path: Path to YARA rules file
+            enable_semantic: Whether to enable semantic detection (requires model download)
         """
         self.yara_rules_path = yara_rules_path
         self.yara_rules = None
         self.embedding_model = None
+        self.enable_semantic = enable_semantic
         
         # Load YARA rules if file exists
         if os.path.exists(yara_rules_path):
@@ -47,8 +49,17 @@ class PDFAnalyzer:
     
     def load_embedding_model(self):
         """Lazy load the embedding model to save memory"""
+        if not self.enable_semantic:
+            self.embedding_model = False
+            return
+        
         if self.embedding_model is None:
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            try:
+                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+            except Exception as e:
+                print(f"Warning: Could not load embedding model: {e}")
+                print("Semantic detection will be disabled")
+                self.embedding_model = False  # Mark as unavailable
     
     def uncompress_pdf(self, pdf_path: str, output_path: str) -> Tuple[bool, str]:
         """
@@ -77,10 +88,19 @@ class PDFAnalyzer:
                 timeout=30
             )
             
-            if result.returncode == 0:
+            # qpdf returns 0 even with warnings, and warnings go to stderr
+            # Check if output file was created successfully
+            if result.returncode == 0 and os.path.exists(output_path):
+                if result.stderr and 'WARNING' in result.stderr:
+                    return True, f"PDF uncompressed with warnings: {result.stderr[:200]}"
                 return True, "PDF uncompressed successfully"
+            elif result.returncode == 3:
+                # Exit code 3 means warnings but success
+                if os.path.exists(output_path):
+                    return True, "PDF uncompressed with warnings"
+                return False, f"qpdf warnings prevented output: {result.stderr}"
             else:
-                return False, f"qpdf error: {result.stderr}"
+                return False, f"qpdf error (exit code {result.returncode}): {result.stderr}"
                 
         except subprocess.TimeoutExpired:
             return False, "qpdf timeout - file may be too large or corrupted"
@@ -204,11 +224,13 @@ class PDFAnalyzer:
                 }
                 
                 for string_match in match.strings:
-                    match_info['strings'].append({
-                        'offset': string_match[0],
-                        'identifier': string_match[1],
-                        'data': string_match[2].decode('utf-8', errors='ignore')
-                    })
+                    # string_match is a StringMatch object with identifier and instances
+                    for instance in string_match.instances:
+                        match_info['strings'].append({
+                            'offset': instance.offset,
+                            'identifier': string_match.identifier,
+                            'data': instance.matched_data.decode('utf-8', errors='ignore')
+                        })
                 
                 matches.append(match_info)
         
@@ -233,6 +255,10 @@ class PDFAnalyzer:
         
         # Load model lazily
         self.load_embedding_model()
+        
+        # If model failed to load, return empty list
+        if self.embedding_model is False:
+            return []
         
         detections = []
         
@@ -334,8 +360,11 @@ class PDFAnalyzer:
                 if inv_text.get('content'):
                     all_text += "\n" + inv_text['content']
             
-            # Semantic injection detection
-            results['semantic_detections'] = self.detect_semantic_injection(all_text)
+            # Semantic injection detection (skip if disabled or unavailable)
+            if self.embedding_model is not False:
+                results['semantic_detections'] = self.detect_semantic_injection(all_text)
+            else:
+                results['semantic_detections'] = []
             
         except Exception as e:
             results['errors'].append(f"Analysis error: {str(e)}")
