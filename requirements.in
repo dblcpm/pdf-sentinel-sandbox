@@ -20,5 +20,8 @@ pdfid
 # NLP processing
 spacy
 
+# Image analysis
+Pillow
+
 # Utilities
 python-magic==0.4.27
