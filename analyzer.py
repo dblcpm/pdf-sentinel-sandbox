@@ -11,10 +11,16 @@ import shutil
 import unicodedata
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
+import torch
 import yara
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from presidio_analyzer import AnalyzerEngine
+
+# CPU Efficiency Failsafe: Default to 2 threads to prevent container lockups
+# This is critical for deployments on limited CPU hardware (e.g., Hugging Face Spaces)
+max_threads = int(os.getenv('MAX_CPU_THREADS', '2'))
+torch.set_num_threads(max_threads)
 
 
 class PDFAnalyzer:
@@ -153,13 +159,14 @@ class PDFAnalyzer:
         return chunks
     
     def load_embedding_model(self):
-        """Lazy load the embedding model to save memory"""
+        """Lazy load the embedding model to save memory and force CPU execution"""
         if not self.enable_semantic:
             return
         
         if self.embedding_model is None:
             try:
-                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+                # Explicitly force model to CPU for deployments on limited hardware
+                self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
                 self.embedding_available = True
             except Exception as e:
                 print(f"Warning: Could not load embedding model: {e}")

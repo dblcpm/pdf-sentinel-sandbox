@@ -4,9 +4,23 @@ services:
   pdf-sentinel:
     build: .
     ports:
-      - "8501:8501"
+      # Bind to localhost only for security
+      - "127.0.0.1:8501:8501"
     volumes:
       - ./:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - MAX_CPU_THREADS=${MAX_CPU_THREADS:-2}
     restart: unless-stopped
+    # Resource limits for production deployment on limited CPU hardware
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_LIMIT:-2.0}'
+          memory: '${MEMORY_LIMIT:-4G}'
+    # Security hardening: read-only filesystem
+    read_only: true
+    # Secure temp storage: allow writing only where necessary
+    tmpfs:
+      - /tmp  # For PDF processing
+      - /home/appuser/.cache  # For model caching
