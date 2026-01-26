@@ -461,12 +461,6 @@ class PDFAnalyzer:
         
         return detections
     
-    def _split_into_sentences(self, text: str) -> List[str]:
-        """Split text into sentences"""
-        # Simple sentence splitting
-        sentences = re.split(r'[.!?]+', text)
-        return [s.strip() for s in sentences if len(s.strip()) > 10]
-    
     def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """Calculate cosine similarity between two vectors"""
         dot_product = np.dot(vec1, vec2)

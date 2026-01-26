@@ -352,57 +352,47 @@ def display_privacy_results(results: dict, show_technical: bool):
         st.success("✅ No dangerous structural elements detected")
     else:
         st.error("🚨 Dangerous structural elements found!")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            js_count = structural_risks.get('/JS', 0)
-            if js_count > 0:
-                st.metric(
-                    "/JS",
-                    js_count,
-                    help="JavaScript code references",
-                    delta="⚠️ Risk" if js_count > 0 else None
-                )
-            else:
-                st.metric("/JS", 0)
-        
-        with col2:
-            javascript_count = structural_risks.get('/JavaScript', 0)
-            if javascript_count > 0:
-                st.metric(
-                    "/JavaScript",
-                    javascript_count,
-                    help="JavaScript actions",
-                    delta="⚠️ Risk" if javascript_count > 0 else None
-                )
-            else:
-                st.metric("/JavaScript", 0)
-        
-        with col3:
-            aa_count = structural_risks.get('/AA', 0)
-            if aa_count > 0:
-                st.metric(
-                    "/AA",
-                    aa_count,
-                    help="Additional Actions (auto-execute)",
-                    delta="⚠️ Risk" if aa_count > 0 else None
-                )
-            else:
-                st.metric("/AA", 0)
-        
-        with col4:
-            openaction_count = structural_risks.get('/OpenAction', 0)
-            if openaction_count > 0:
-                st.metric(
-                    "/OpenAction",
-                    openaction_count,
-                    help="Actions executed on document open",
-                    delta="⚠️ Risk" if openaction_count > 0 else None
-                )
-            else:
-                st.metric("/OpenAction", 0)
-        
+    
+    # Always show the metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        js_count = structural_risks.get('/JS', 0)
+        st.metric(
+            "/JS",
+            js_count,
+            help="JavaScript code references",
+            delta="⚠️ Risk" if js_count > 0 else None
+        )
+    
+    with col2:
+        javascript_count = structural_risks.get('/JavaScript', 0)
+        st.metric(
+            "/JavaScript",
+            javascript_count,
+            help="JavaScript actions",
+            delta="⚠️ Risk" if javascript_count > 0 else None
+        )
+    
+    with col3:
+        aa_count = structural_risks.get('/AA', 0)
+        st.metric(
+            "/AA",
+            aa_count,
+            help="Additional Actions (auto-execute)",
+            delta="⚠️ Risk" if aa_count > 0 else None
+        )
+    
+    with col4:
+        openaction_count = structural_risks.get('/OpenAction', 0)
+        st.metric(
+            "/OpenAction",
+            openaction_count,
+            help="Actions executed on document open",
+            delta="⚠️ Risk" if openaction_count > 0 else None
+        )
+    
+    if has_risks:
         st.warning("""
         **⚠️ Security Warning:**  
         These structural elements can execute code automatically when the PDF is opened.
