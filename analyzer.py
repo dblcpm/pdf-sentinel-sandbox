@@ -33,6 +33,7 @@ class PDFAnalyzer:
         self.embedding_model = None
         self.enable_semantic = enable_semantic
         self.embedding_available = False
+        self.pii_analyzer = None
         
         # Load YARA rules if file exists
         if os.path.exists(yara_rules_path):
@@ -379,11 +380,12 @@ class PDFAnalyzer:
             }
         
         try:
-            # Initialize Presidio AnalyzerEngine
-            analyzer = AnalyzerEngine()
+            # Lazy load the PII analyzer
+            if self.pii_analyzer is None:
+                self.pii_analyzer = AnalyzerEngine()
             
             # Analyze text for PII
-            results = analyzer.analyze(
+            results = self.pii_analyzer.analyze(
                 text=text,
                 language='en',
                 entities=['EMAIL_ADDRESS', 'PHONE_NUMBER', 'PERSON']
