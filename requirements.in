@@ -7,7 +7,7 @@ yara-python==4.5.0
 
 # Embeddings for semantic analysis
 sentence-transformers==2.3.1
-torch==2.2.0
+torch>=2.6.0
 numpy==1.26.3
 
 # Utilities

@@ -98,6 +98,8 @@ The tool includes three main YARA rule categories:
 - Temporary files are securely cleaned up after analysis
 - No external network calls during analysis
 - File uploads are validated and sandboxed
+- **PyTorch Version**: Uses PyTorch ≥2.6.0 to address CVE vulnerabilities in earlier versions
+- The application does not use `torch.load()` directly, avoiding deserialization risks
 
 ## Development
 
