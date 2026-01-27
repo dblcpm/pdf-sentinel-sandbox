@@ -14,6 +14,39 @@ from analyzer import PDFAnalyzer
 ENABLE_SEMANTIC = os.getenv('ENABLE_SEMANTIC_DETECTION', 'true').lower() in ('true', '1', 'yes')
 
 
+# Map technical YARA tags to human-readable explanations
+YARA_EXPLANATIONS = {
+    "/AA": {
+        "title": "⚠️ Automatic Action Trigger",
+        "desc": "The '/AA' tag stands for 'Additional Actions'. It allows the PDF to execute commands automatically when you interact with a page (like scrolling or hovering). Malware often uses this to run code without your explicit consent."
+    },
+    "/OpenAction": {
+        "title": "🚨 Auto-Execute on Open",
+        "desc": "The '/OpenAction' command triggers an action immediately when the document is opened. This is a high-risk feature often used by malware to launch attacks instantly before you can react."
+    },
+    "/JS": {
+        "title": "📜 JavaScript Embedded",
+        "desc": "The '/JS' tag indicates raw JavaScript code is hidden inside the file structure. While sometimes used for legitimate forms, it is the most common vehicle for malicious PDF payloads."
+    },
+    "/JavaScript": {
+        "title": "📜 JavaScript Action",
+        "desc": "This specific tag triggers a script. If you didn't expect this document to contain code, this is highly suspicious."
+    },
+    "/Launch": {
+        "title": "🚀 Program Launcher",
+        "desc": "The '/Launch' command attempts to open an external program or file on your computer (like cmd.exe or PowerShell). This is extremely dangerous."
+    },
+    "ignore previous": {
+        "title": "🧠 AI Prompt Injection",
+        "desc": "The phrase 'ignore previous instructions' is a classic attempt to hijack an AI system. It tries to force the AI to disregard safety rules and execute unauthorized commands."
+    },
+     "system prompt": {
+        "title": "🧠 System Prompt Leak",
+        "desc": "References to 'system prompt' often indicate an attempt to trick the AI into revealing its internal configuration or secrets."
+    }
+}
+
+
 def main():
     """Main Streamlit application"""
     
@@ -226,36 +259,76 @@ def display_invisible_text_results(results: dict, show_technical: bool):
 
 
 def display_yara_results(results: dict, show_technical: bool):
-    """Display YARA scanning results"""
+    """Display YARA scanning results with explanations and evidence"""
     st.subheader("YARA Rule Matches")
     
     yara_matches = results.get('yara_matches', [])
     
     if not yara_matches:
         st.success("✅ No YARA rules matched")
-    else:
-        st.warning(f"⚠️ {len(yara_matches)} YARA rule(s) matched")
+        return
+
+    st.warning(f"⚠️ {len(yara_matches)} Suspicious Patterns Detected")
+    
+    for match in yara_matches:
+        rule_name = match.get('rule', 'Unknown')
+        strings = match.get('strings', [])
         
-        for i, match in enumerate(yara_matches, 1):
-            rule_name = match.get('rule', 'Unknown')
-            meta = match.get('meta', {})
+        # Group matches by their explanation (or lack thereof)
+        grouped_alerts = {}
+        unexplained_evidence = set()
+        
+        for string_match in strings:
+            data = string_match.get('data', '').strip()
+            found_explanation = False
             
-            with st.expander(f"Rule: {rule_name}"):
-                if meta:
-                    st.write("**Metadata:**")
-                    for key, value in meta.items():
-                        st.write(f"- {key}: {value}")
+            # Find matching explanation
+            for key, explanation in YARA_EXPLANATIONS.items():
+                if key.lower() in data.lower():
+                    title = explanation['title']
+                    if title not in grouped_alerts:
+                        grouped_alerts[title] = {
+                            "desc": explanation['desc'],
+                            "evidence": set()
+                        }
+                    grouped_alerts[title]["evidence"].add(data)
+                    found_explanation = True
+                    break
+            
+            if not found_explanation:
+                unexplained_evidence.add(data)
+
+        # Display the Rule Container
+        with st.expander(f"🔴 Detection: {rule_name}", expanded=True):
+            
+            # 1. Display Explained Alerts
+            for title, info in grouped_alerts.items():
+                st.info(f"**{title}**\n\n{info['desc']}")
                 
-                strings = match.get('strings', [])
-                if strings:
-                    st.write(f"**Matched Strings ({len(strings)}):**")
-                    for string_match in strings:
-                        identifier = string_match.get('identifier', 'Unknown')
-                        data = string_match.get('data', '')
-                        st.code(f"{identifier}: {data}", language=None)
-                        
-                        if show_technical:
-                            st.write(f"Offset: {string_match.get('offset', 'N/A')}")
+                # Show the Evidence (The Smoking Gun)
+                st.markdown("**🕵️ Flagged Content (Evidence):**")
+                for item in info['evidence']:
+                    st.code(item, language=None)
+            
+            # 2. Display Unexplained/Generic Matches
+            if unexplained_evidence:
+                st.write("**Suspicious Content Detected:**")
+                st.caption("The following text triggered this security rule:")
+                for item in unexplained_evidence:
+                    st.code(item, language=None)
+            
+            # 3. Technical Details (Optional)
+            if show_technical:
+                st.divider()
+                st.caption("Technical Metadata")
+                meta = match.get('meta', {})
+                if meta:
+                    for k, v in meta.items():
+                        st.write(f"- **{k}:** {v}")
+                
+                st.write("**Full Raw Matches:**")
+                for s in strings:
+                    st.text(f"Offset {s.get('offset')}: {s.get('data')}")
 
 
 def display_semantic_results(results: dict, show_technical: bool, threshold: float):
