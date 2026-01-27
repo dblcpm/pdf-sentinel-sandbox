@@ -40,7 +40,7 @@ YARA_EXPLANATIONS = {
         "title": "🧠 AI Prompt Injection",
         "desc": "The phrase 'ignore previous instructions' is a classic attempt to hijack an AI system. It tries to force the AI to disregard safety rules and execute unauthorized commands."
     },
-     "system prompt": {
+    "system prompt": {
         "title": "🧠 System Prompt Leak",
         "desc": "References to 'system prompt' often indicate an attempt to trick the AI into revealing its internal configuration or secrets."
     }
@@ -282,9 +282,12 @@ def display_yara_results(results: dict, show_technical: bool):
             data = string_match.get('data', '').strip()
             found_explanation = False
             
-            # Find matching explanation
-            for key, explanation in YARA_EXPLANATIONS.items():
+            # Find matching explanation (check longer patterns first to avoid substring issues)
+            # Sort keys by length in descending order to match "/JavaScript" before "/JS"
+            sorted_keys = sorted(YARA_EXPLANATIONS.keys(), key=len, reverse=True)
+            for key in sorted_keys:
                 if key.lower() in data.lower():
+                    explanation = YARA_EXPLANATIONS[key]
                     title = explanation['title']
                     if title not in grouped_alerts:
                         grouped_alerts[title] = {
@@ -307,14 +310,14 @@ def display_yara_results(results: dict, show_technical: bool):
                 
                 # Show the Evidence (The Smoking Gun)
                 st.markdown("**🕵️ Flagged Content (Evidence):**")
-                for item in info['evidence']:
+                for item in sorted(info['evidence']):
                     st.code(item, language=None)
             
             # 2. Display Unexplained/Generic Matches
             if unexplained_evidence:
                 st.write("**Suspicious Content Detected:**")
                 st.caption("The following text triggered this security rule:")
-                for item in unexplained_evidence:
+                for item in sorted(unexplained_evidence):
                     st.code(item, language=None)
             
             # 3. Technical Details (Optional)
