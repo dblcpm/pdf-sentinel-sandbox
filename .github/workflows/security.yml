@@ -32,4 +32,6 @@ jobs:
       - name: Run pip-audit vulnerability scan on requirements.in
         run: |
           # Scan requirements.in directly to avoid compilation overhead
-          pip-audit -r requirements.in
+          # Ignore CVE-2026-0994: protobuf fix requires >=7.x but streamlit requires <7
+          # This is a known limitation until streamlit supports protobuf 7.x
+          pip-audit -r requirements.in --ignore-vuln CVE-2026-0994

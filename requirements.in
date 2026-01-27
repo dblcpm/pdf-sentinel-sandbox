@@ -1,6 +1,6 @@
 # Core dependencies
 streamlit>=1.37.0
-protobuf>=5.29.5  # Updated to patched version (CVE-2026-0994)
+protobuf<7,>=6.33.4  # CVE-2026-0994 cannot be fixed (affects <=6.33.4, fix requires >=7.x, but streamlit requires <7)
 PyPDF2==3.0.1
 
 # YARA for keyword detection

@@ -298,7 +298,7 @@ def _normalize_and_chunk(text, window_size=500, overlap=100):
 
 **Last Updated**: 2026-01-26  
 **CodeQL Scan**: ✅ 0 vulnerabilities  
-**Dependency Scan**: ✅ All packages secure
+**Dependency Scan**: ⚠️ 1 known issue (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 
 ### Hardening Measures
 
@@ -337,7 +337,8 @@ RUN python -m spacy download en_core_web_sm
 | Package | Version | Status |
 |---------|---------|--------|
 | torch | ≥2.6.0 | ✅ Patched (CVE fixed) |
-| streamlit | 1.31.0 | ✅ Secure |
+| streamlit | ≥1.37.0 | ✅ Secure (PYSEC-2024-153 fixed) |
+| protobuf | <7,≥6.33.4 | ⚠️ CVE-2026-0994 (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)) |
 | presidio-analyzer | latest | ✅ Secure |
 | pdfid | latest | ✅ Secure |
 | spacy | latest | ✅ Secure |
@@ -353,7 +354,7 @@ RUN python -m spacy download en_core_web_sm
 - [ ] Enable HTTPS/TLS for web interface
 - [x] Set up regular dependency scanning (GitHub Actions with pip-audit)
 - [ ] Configure log monitoring
-- [ ] Document security procedures
+- [x] Document security procedures (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
 - [x] CPU optimization for limited hardware (torch thread limiting, forced CPU execution)
 - [x] Secure tmpfs mounts with size limits (/tmp: 2G, /home/appuser/.cache: 1G)
 
