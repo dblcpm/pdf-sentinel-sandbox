@@ -37,8 +37,8 @@ COPY --chown=appuser:appuser signatures.yara .
 # Switch to non-root user
 USER appuser
 
-# Expose Streamlit default port
-EXPOSE 8501
+# Expose Hugging Face's required port
+EXPOSE 7860
 
 # Run the application
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
