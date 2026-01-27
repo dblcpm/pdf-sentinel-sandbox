@@ -1,3 +1,14 @@
+---
+title: PDF Sentinel Sandbox
+emoji: 🛡️
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # PDF Sentinel 🔍
 
 **Advanced PDF Security Scanner** - Detect prompt injection, PII leaks, and malicious PDF structures
