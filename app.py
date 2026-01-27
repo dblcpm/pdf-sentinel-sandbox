@@ -270,6 +270,9 @@ def display_yara_results(results: dict, show_technical: bool):
 
     st.warning(f"⚠️ {len(yara_matches)} Suspicious Patterns Detected")
     
+    # Pre-sort YARA_EXPLANATIONS keys by length (longest first) to avoid substring matching issues
+    sorted_explanation_keys = sorted(YARA_EXPLANATIONS.keys(), key=len, reverse=True)
+    
     for match in yara_matches:
         rule_name = match.get('rule', 'Unknown')
         strings = match.get('strings', [])
@@ -283,9 +286,7 @@ def display_yara_results(results: dict, show_technical: bool):
             found_explanation = False
             
             # Find matching explanation (check longer patterns first to avoid substring issues)
-            # Sort keys by length in descending order to match "/JavaScript" before "/JS"
-            sorted_keys = sorted(YARA_EXPLANATIONS.keys(), key=len, reverse=True)
-            for key in sorted_keys:
+            for key in sorted_explanation_keys:
                 if key.lower() in data.lower():
                     explanation = YARA_EXPLANATIONS[key]
                     title = explanation['title']
@@ -301,11 +302,16 @@ def display_yara_results(results: dict, show_technical: bool):
             if not found_explanation:
                 unexplained_evidence.add(data)
 
+        # Skip displaying if nothing to show
+        if not grouped_alerts and not unexplained_evidence and not show_technical:
+            continue
+
         # Display the Rule Container
         with st.expander(f"🔴 Detection: {rule_name}", expanded=True):
             
-            # 1. Display Explained Alerts
-            for title, info in grouped_alerts.items():
+            # 1. Display Explained Alerts (sorted by title for consistency)
+            for title in sorted(grouped_alerts.keys()):
+                info = grouped_alerts[title]
                 st.info(f"**{title}**\n\n{info['desc']}")
                 
                 # Show the Evidence (The Smoking Gun)
