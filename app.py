@@ -175,16 +175,17 @@ def display_results(results: dict, risk_level: str, risk_score: int,
     
     # Display errors if any
     if results.get('errors'):
-        st.error("⚠️ Analysis Errors:")
-        for error in results['errors']:
-            st.write(f"- {error}")
+        with st.expander("⚠️ Analysis Notices", expanded=True):
+            for error in results['errors']:
+                st.warning(f"⚠️ {error}")
     
     # Tabs for different detection types
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔍 Invisible Text",
         "🎯 YARA Matches",
         "🧠 Semantic Detection",
         "🔒 Privacy",
+        "⚠️ Advanced Threats",
         "📋 Summary"
     ])
     
@@ -201,6 +202,9 @@ def display_results(results: dict, risk_level: str, risk_score: int,
         display_privacy_results(results, show_technical)
     
     with tab5:
+        display_advanced_threats(results, show_technical)
+    
+    with tab6:
         display_summary(results, risk_level, risk_score)
 
 
@@ -216,12 +220,18 @@ def display_invisible_text_results(results: dict, show_technical: bool):
         st.warning(f"⚠️ Found {len(invisible_text)} instance(s) of invisible text")
         
         for i, detection in enumerate(invisible_text, 1):
-            with st.expander(f"Detection #{i} - {detection.get('type', 'Unknown')}"):
-                st.write(f"**Pattern:** {detection.get('pattern', 'N/A')}")
-                st.write(f"**Content:**")
-                st.code(detection.get('content', ''), language=None)
+            description = detection.get('description', detection.get('type', 'Unknown'))
+            with st.expander(f"Detection #{i} — Invisible Text Found"):
+                st.markdown(f"**What was found:** {description}")
+                
+                extracted = detection.get('extracted_text', detection.get('content', ''))
+                if extracted:
+                    st.markdown("**Hidden text extracted from the PDF:**")
+                    st.code(extracted, language=None)
                 
                 if show_technical:
+                    st.write(f"**Type:** `{detection.get('type', 'N/A')}`")
+                    st.write(f"**Pattern:** `{detection.get('pattern', 'N/A')}`")
                     st.write(f"**Position:** {detection.get('position', 'N/A')}")
 
 
@@ -238,24 +248,33 @@ def display_yara_results(results: dict, show_technical: bool):
         
         for i, match in enumerate(yara_matches, 1):
             rule_name = match.get('rule', 'Unknown')
-            meta = match.get('meta', {})
+            description = match.get('description', '')
             
             with st.expander(f"Rule: {rule_name}"):
-                if meta:
-                    st.write("**Metadata:**")
-                    for key, value in meta.items():
-                        st.write(f"- {key}: {value}")
+                if description:
+                    st.markdown(f"**What was found:** {description}")
                 
                 strings = match.get('strings', [])
                 if strings:
-                    st.write(f"**Matched Strings ({len(strings)}):**")
+                    st.markdown(f"**Matched text from the PDF ({len(strings)} occurrence(s)):**")
                     for string_match in strings:
-                        identifier = string_match.get('identifier', 'Unknown')
+                        explanation = string_match.get('explanation', '')
                         data = string_match.get('data', '')
-                        st.code(f"{identifier}: {data}", language=None)
+                        if explanation:
+                            st.info(f"📌 {explanation}")
+                        else:
+                            st.code(f"{data}", language=None)
                         
                         if show_technical:
+                            st.write(f"Identifier: `{string_match.get('identifier', 'N/A')}`")
                             st.write(f"Offset: {string_match.get('offset', 'N/A')}")
+                
+                if show_technical:
+                    meta = match.get('meta', {})
+                    if meta:
+                        st.write("**Rule Metadata:**")
+                        for key, value in meta.items():
+                            st.write(f"- {key}: {value}")
 
 
 def display_semantic_results(results: dict, show_technical: bool, threshold: float):
@@ -402,6 +421,72 @@ def display_privacy_results(results: dict, show_technical: bool):
         """)
 
 
+def display_advanced_threats(results: dict, show_technical: bool):
+    """Display image anomalies, obfuscated payloads, and citation spam results"""
+    st.subheader("Advanced Threat Detection")
+
+    # Image anomalies
+    st.markdown("#### 🖼️ Image Anomalies")
+    image_anomalies = results.get('image_anomalies', [])
+
+    if not image_anomalies:
+        st.success("✅ No suspicious images detected")
+    else:
+        st.warning(f"⚠️ Found {len(image_anomalies)} suspicious image(s)")
+        for i, anomaly in enumerate(image_anomalies, 1):
+            description = anomaly.get('description', 'Suspicious image detected')
+            with st.expander(f"Image #{i} — Page {anomaly.get('page', '?')}"):
+                st.markdown(f"**What was found:** {description}")
+                if show_technical:
+                    st.write(f"**Object:** `{anomaly.get('object_name', 'N/A')}`")
+                    st.write(f"**Entropy:** {anomaly.get('entropy', 'N/A')}")
+                    st.write(f"**Size:** {anomaly.get('size_bytes', 0)} bytes")
+
+    # Obfuscated payloads
+    st.markdown("#### 🔐 Obfuscated Payloads")
+    obfuscated = results.get('obfuscated_payloads', [])
+
+    if not obfuscated:
+        st.success("✅ No obfuscated payloads detected")
+    else:
+        st.warning(f"⚠️ Found {len(obfuscated)} obfuscated payload(s)")
+        for i, payload in enumerate(obfuscated, 1):
+            description = payload.get('description', 'Obfuscated content detected')
+            with st.expander(f"Payload #{i} — Encoded Content Found"):
+                st.markdown(f"**What was found:** {description}")
+
+                decoded = payload.get('decoded', '')
+                if decoded:
+                    st.markdown("**Decoded text from the PDF:**")
+                    st.code(decoded, language=None)
+
+                if show_technical:
+                    st.write(f"**Encoded (preview):** `{payload.get('encoded', 'N/A')}`")
+                    st.write(f"**Position:** {payload.get('position', 'N/A')}")
+
+    # Citation spam
+    st.markdown("#### 📊 Citation & Link Analysis")
+    citation_spam = results.get('citation_spam', {})
+
+    if not citation_spam or not citation_spam.get('is_spam', False):
+        st.success("✅ No citation spam or link farming detected")
+    else:
+        st.error("🚨 Potential citation spam or link farming detected!")
+        indicators = citation_spam.get('spam_indicators', [])
+        if indicators:
+            st.markdown("**What was found:**")
+            for indicator in indicators:
+                st.warning(f"📌 {indicator}")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("URLs Found", citation_spam.get('url_count', 0))
+        with col2:
+            st.metric("DOIs Found", citation_spam.get('doi_count', 0))
+        with col3:
+            st.metric("Unique Domains", citation_spam.get('unique_domains', 0))
+
+
 def display_summary(results: dict, risk_level: str, risk_score: int):
     """Display analysis summary"""
     st.subheader("Analysis Summary")
@@ -411,20 +496,23 @@ def display_summary(results: dict, risk_level: str, risk_score: int):
     
     with col1:
         st.metric(
-            "Invisible Text Instances",
-            len(results.get('invisible_text', []))
+            "Invisible Text",
+            len(results.get('invisible_text', [])),
+            help="Instances of text hidden from visual display"
         )
     
     with col2:
         st.metric(
-            "YARA Matches",
-            len(results.get('yara_matches', []))
+            "Suspicious Patterns",
+            len(results.get('yara_matches', [])),
+            help="YARA rule matches for suspicious keywords or structures"
         )
     
     with col3:
         st.metric(
-            "Semantic Detections",
-            len(results.get('semantic_detections', []))
+            "Injection Attempts",
+            len(results.get('semantic_detections', [])),
+            help="Semantic prompt injection detections"
         )
     
     with col4:
@@ -433,7 +521,33 @@ def display_summary(results: dict, risk_level: str, risk_score: int):
         total_pii = sum(pii_detections.values()) if pii_detections else 0
         st.metric(
             "PII Instances",
-            total_pii
+            total_pii,
+            help="Personally identifiable information found"
+        )
+    
+    # Additional threat counts
+    col5, col6, col7 = st.columns(3)
+    
+    with col5:
+        st.metric(
+            "Suspicious Images",
+            len(results.get('image_anomalies', [])),
+            help="Images with abnormally high entropy (possible steganography)"
+        )
+    
+    with col6:
+        st.metric(
+            "Obfuscated Payloads",
+            len(results.get('obfuscated_payloads', [])),
+            help="Base64-encoded content hiding suspicious data"
+        )
+    
+    with col7:
+        citation_spam = results.get('citation_spam', {})
+        st.metric(
+            "Citation Spam",
+            "Yes" if citation_spam.get('is_spam', False) else "No",
+            help="Whether excessive URLs or link farming was detected"
         )
     
     # Recommendations
