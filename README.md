@@ -21,17 +21,20 @@ license: mit
 
 ## 📋 Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Architecture](#architecture)
-- [Security](#security)
-- [API Reference](#api-reference)
-- [Development](#development)
-- [Troubleshooting](#troubleshooting)
-- [Changelog](#changelog)
-- [Contributing](#contributing)
+- [Overview](#-overview)
+- [Features](#-features)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [Architecture](#-architecture)
+- [Plugin System](#-plugin-system)
+- [Security](#-security)
+- [Known Issues](#-known-issues)
+- [API Reference](#-api-reference)
+- [Development](#-development)
+- [Troubleshooting](#-troubleshooting)
+- [Future Roadmap](#-future-roadmap-dynamic-analysis)
+- [Changelog](#-changelog)
+- [Contributing](#-contributing)
 
 ---
 
@@ -50,6 +53,7 @@ PDF Sentinel is a comprehensive forensic PDF analysis tool designed for journal 
 - 🔐 **Obfuscated Payloads**: Base64-encoded malicious content detection
 - 🖼️ **Image Forensics**: Steganography detection via Shannon entropy analysis
 - 📊 **Citation Spam**: Link farming and SEO spam detection in academic documents
+- 🔗 **CrossRef DOI Verification**: Validates cited DOIs against the CrossRef API to detect fabricated references, retracted papers, and citation rings
 
 ### Key Capabilities
 
@@ -59,7 +63,8 @@ PDF Sentinel is a comprehensive forensic PDF analysis tool designed for journal 
 - **Production Ready**: Non-root Docker execution with pre-baked ML models
 - **Risk Scoring**: Intelligent scoring with /JS detection triggering HIGH/CRITICAL alerts
 - **CPU Optimized**: Forced CPU execution with thread limiting for deployment on limited hardware
-- **Medical Journal Forensics**: Citation spam and image steganography detection
+- **Medical Journal Forensics**: Citation spam, DOI verification, and image steganography detection
+- **Plugin System**: Extensible architecture for custom detectors via `PluginRegistry`
 
 ---
 
@@ -82,7 +87,7 @@ PDF Sentinel is a comprehensive forensic PDF analysis tool designed for journal 
   - Cross-sentence boundary detection
   - Similarity threshold: 0.7 (configurable)
 
-- 🔒 **Privacy Protection (NEW)**
+- 🔒 **Privacy Protection**
   - Email address detection
   - Phone number identification
   - Person name recognition
@@ -94,23 +99,31 @@ PDF Sentinel is a comprehensive forensic PDF analysis tool designed for journal 
   - `/AA` - Auto-execute actions
   - `/OpenAction` - Document open triggers
 
-- 🔐 **Obfuscation Detection (NEW)**
+- 🔐 **Obfuscation Detection**
   - Base64-encoded payload detection
   - Automatic decoding and recursive scanning
   - Integration with semantic and YARA detection
   - Minimum 20-character alphanumeric sequences
 
-- 🖼️ **Image Forensics (NEW)**
+- 🖼️ **Image Forensics**
   - Shannon entropy calculation for images
   - Steganography detection (entropy > 7.8)
   - Extracts images from PDF streams via PyPDF2
   - Flags potential hidden data/malware containers
 
-- 📊 **Citation Spam Detection (NEW)**
+- 📊 **Citation Spam Detection**
   - URL and DOI extraction using regex
   - Link farming pattern detection (>5 URLs/domain)
   - Excessive cross-linking detection (>20 unique domains)
   - URL density analysis (URLs per 1000 characters)
+
+- 🔗 **CrossRef DOI Verification** (opt-in)
+  - Validates DOIs against the CrossRef public API (no API key required)
+  - Detects fabricated (non-resolving) DOIs
+  - Identifies retracted papers being cited
+  - Flags journal concentration (citation ring patterns)
+  - Detects author self-citation clusters
+  - Caps lookups at 20 DOIs per scan for performance
 
 ### Security Features
 
@@ -142,8 +155,10 @@ docker-compose up --build
 
 ```bash
 docker build -t pdf-sentinel .
-docker run -p 8501:8501 pdf-sentinel
+docker run -p 8501:7860 pdf-sentinel
 ```
+
+> **Note:** The Dockerfile exposes port **7860** (Hugging Face Spaces convention). Docker Compose maps it to **8501** for local development.
 
 ### Local Installation
 
@@ -162,13 +177,26 @@ python -m spacy download en_core_web_sm
 streamlit run app.py
 ```
 
-### Environment Variables
+### Install as a Python Package
+
+PDF Sentinel can also be installed as a library via `pyproject.toml`:
 
 ```bash
-# Enable/disable semantic detection
-export ENABLE_SEMANTIC_DETECTION=true
+pip install .            # core library only
+pip install '.[app]'     # includes Streamlit + protobuf for the web UI
+```
 
-# Run application
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_SEMANTIC_DETECTION` | `true` | Enable/disable ML-based semantic analysis |
+| `MAX_CPU_THREADS` | `2` | PyTorch thread limit for CPU execution |
+| `CPU_LIMIT` | `2.0` | Docker CPU limit (cores) |
+| `MEMORY_LIMIT` | `4G` | Docker memory limit |
+
+```bash
+export ENABLE_SEMANTIC_DETECTION=true
 streamlit run app.py
 ```
 
@@ -179,19 +207,20 @@ streamlit run app.py
 ### Web Interface
 
 1. **Upload PDF**: Click "Choose a PDF file to analyze" or drag and drop
-2. **Configure Settings**: Adjust semantic detection threshold (0.5-0.95)
+2. **Configure Settings**: Adjust semantic detection threshold (0.5-0.95), toggle CrossRef DOI verification
 3. **Analyze**: Click "🔍 Analyze PDF" button
-4. **Review Results**: Explore findings across multiple tabs:
+4. **Review Results**: Explore findings across six tabs:
    - 🔍 **Invisible Text**: Hidden content detection
    - 🎯 **YARA Matches**: Pattern-based findings
    - 🧠 **Semantic Detection**: ML-powered injection detection
    - 🔒 **Privacy**: PII counts and structural risks
-   - 📋 **Summary**: Overall risk assessment
+   - ⚠️ **Advanced Threats**: Image anomalies, obfuscated payloads, citation spam, and CrossRef verification
+   - 📋 **Summary**: Overall risk assessment with recommendations
 
 ### Programmatic Usage
 
 ```python
-from analyzer import PDFAnalyzer
+from pdf_sentinel import PDFAnalyzer
 
 # Initialize analyzer
 analyzer = PDFAnalyzer('signatures.yara', enable_semantic=True)
@@ -199,17 +228,41 @@ analyzer = PDFAnalyzer('signatures.yara', enable_semantic=True)
 # Analyze a PDF file
 results = analyzer.analyze_pdf('/path/to/file.pdf')
 
-# Access new features
+# Access detection results
 print(f"PII Detections: {results['pii_detections']}")
 # Output: {'EMAIL_ADDRESS': 5, 'PHONE_NUMBER': 2, 'PERSON': 8}
 
 print(f"Structural Risks: {results['structural_risks']}")
 # Output: {'/JS': 3, '/JavaScript': 1, '/AA': 0, '/OpenAction': 1}
 
+print(f"Image Anomalies: {len(results['image_anomalies'])}")
+print(f"Obfuscated Payloads: {len(results['obfuscated_payloads'])}")
+print(f"Citation Spam: {results['citation_spam']['is_spam']}")
+
 # Get risk assessment
 risk_level, risk_score = analyzer.get_risk_score(results)
 print(f"Risk Level: {risk_level}")  # HIGH or CRITICAL if /JS detected
 print(f"Risk Score: {risk_score}/100")
+```
+
+> **Backward compatibility:** `from analyzer import PDFAnalyzer` still works via the shim in the root `analyzer.py`.
+
+### CrossRef DOI Verification
+
+Enable CrossRef verification to validate cited references in academic PDFs:
+
+```python
+analyzer = PDFAnalyzer(
+    'signatures.yara',
+    enable_semantic=True,
+    enable_crossref=True,   # opt-in, requires network access
+)
+results = analyzer.analyze_pdf('/path/to/paper.pdf')
+
+crossref = results['citation_spam'].get('crossref', {})
+print(f"Valid DOIs: {crossref.get('valid_count', 0)}")
+print(f"Invalid DOIs: {crossref.get('invalid_count', 0)}")
+print(f"Retracted: {crossref.get('retracted_count', 0)}")
 ```
 
 ### Risk Level Interpretation
@@ -222,7 +275,34 @@ print(f"Risk Score: {risk_score}/100")
 | **HIGH** | 50-79 | Significant threats detected |
 | **CRITICAL** | 80-100 | Multiple severe threats |
 
-**Note**: Structural risks (/JS, /JavaScript) automatically trigger **HIGH** or **CRITICAL** regardless of score.
+**Note**: Structural risks (`/JS`, `/JavaScript`) automatically trigger **HIGH** or **CRITICAL** regardless of score.
+
+### Detection Types
+
+1. **Invisible Text**: Text rendered invisible through white RGB color (`1 1 1 rg`), white grayscale (`1 g`), or invisible rendering mode (`3 Tr`).
+2. **YARA Matches**: Pattern-based detection of prompt injection keywords, hidden JavaScript/commands, and excessive encoding.
+3. **Semantic Detection**: ML-based similarity analysis for instruction override attempts, data exfiltration patterns, and role manipulation.
+4. **Obfuscated Payloads**: Base64-encoded content decoded and recursively scanned with semantic and YARA engines.
+5. **Image Anomalies**: Shannon entropy analysis flags images with entropy > 7.8 as potential steganography.
+6. **Citation Spam**: URL density, domain concentration, and link farming metrics for academic document forensics.
+
+### Docker Deployment
+
+```bash
+# Build custom image
+docker build -t pdf-sentinel:latest .
+
+# Run container with environment variables
+docker run -p 8501:7860 \
+  -e ENABLE_SEMANTIC_DETECTION=true \
+  -e MAX_CPU_THREADS=2 \
+  pdf-sentinel:latest
+
+# Using Docker Compose
+docker-compose up -d       # start in background
+docker-compose logs -f     # view logs
+docker-compose down        # stop
+```
 
 ---
 
@@ -238,18 +318,30 @@ print(f"Risk Score: {risk_score}/100")
 - **pdfid** - PDF structural analysis
 - **spacy** - NLP processing (`en_core_web_sm`)
 - **qpdf** - PDF manipulation tool
+- **PyPDF2** - PDF parsing and image extraction
+- **CrossRef API** - DOI verification (opt-in)
 - **Docker** - Containerization
 
-### Components
+### Project Structure
 
 ```
-pdf-sentinel/
-├── app.py              # Streamlit web interface
-├── analyzer.py         # Core analysis engine
-├── signatures.yara     # YARA detection rules
-├── Dockerfile          # Hardened container config
-├── docker-compose.yml  # Orchestration
-└── requirements.in     # Python dependencies
+pdf-sentinel-sandbox/
+├── app.py                    # Streamlit web interface
+├── analyzer.py               # Backward-compatibility shim
+├── pdf_sentinel/             # Core library package
+│   ├── __init__.py           # Package exports (PDFAnalyzer, PluginRegistry, crossref)
+│   ├── analyzer.py           # Core analysis engine
+│   ├── crossref.py           # CrossRef DOI verification module
+│   └── plugins.py            # Plugin system (PluginRegistry)
+├── signatures.yara           # YARA detection rules
+├── pyproject.toml            # Python packaging configuration
+├── Dockerfile                # Hardened container config
+├── docker-compose.yml        # Orchestration with resource limits
+├── requirements.in           # Python dependencies (pip)
+├── requirements.txt          # Pinned dependencies
+└── .github/workflows/
+    ├── security.yml          # pip-audit vulnerability scanning
+    └── sync_to_hub.yml       # Hugging Face Spaces deployment
 ```
 
 ### Analysis Pipeline
@@ -257,21 +349,35 @@ pdf-sentinel/
 ```
 PDF Upload
     ↓
-[1] Structural Analysis (pdfid)
+[Plugin: pre_analysis]
     ↓
-[2] PDF Uncompression (qpdf --qdf)
+[1] Structural Analysis (pdfid — /JS, /JavaScript, /AA, /OpenAction)
     ↓
-[3] Invisible Text Detection (regex patterns)
+[2] Image Anomaly Detection (Shannon entropy via PyPDF2)
     ↓
-[4] YARA Scanning (signature matching)
+[3] PDF Uncompression (qpdf --qdf)
     ↓
-[5] Text Normalization (NFKC Unicode)
+[Plugin: post_decompress]
     ↓
-[6] PII Detection (Presidio, 100k char limit)
+[4] Invisible Text Detection (regex patterns)
     ↓
-[7] Semantic Analysis (chunk-based embeddings)
+[5] YARA Scanning (signature matching)
     ↓
-[8] Risk Scoring (multi-factor assessment)
+[6] Text Normalization (NFKC Unicode)
+    ↓
+[Plugin: post_extract]
+    ↓
+[7] PII Detection (Presidio, 100k char limit)
+    ↓
+[8] Obfuscation Detection (Base64 decode + recursive scanning)
+    ↓
+[9] Citation Spam Detection (URL density, link farming, optional CrossRef)
+    ↓
+[10] Semantic Analysis (chunk-based embeddings)
+    ↓
+[Plugin: post_analysis]
+    ↓
+[11] Risk Scoring (multi-factor assessment)
     ↓
 Results Display
 ```
@@ -284,10 +390,16 @@ def _normalize_and_chunk(text, window_size=500, overlap=100):
     # NFKC normalization defeats homoglyph attacks
     normalized = unicodedata.normalize('NFKC', text)
     
+    # Short texts treated as single high-priority chunk
+    if len(normalized) < 500:
+        return [normalized]
+
     # Sliding windows preserve context across boundaries
     chunks = []
-    for start in range(0, len(normalized), window_size - overlap):
+    start = 0
+    while start < len(normalized):
         chunks.append(normalized[start:start + window_size])
+        start += window_size - overlap
     return chunks
 ```
 
@@ -301,15 +413,61 @@ def _normalize_and_chunk(text, window_size=500, overlap=100):
 - 100k character safety limit prevents DoS
 - Detects: EMAIL_ADDRESS, PHONE_NUMBER, PERSON
 
+**4. CrossRef DOI Verification**
+- Extracts DOIs from text using regex (`10.\d{4,}/...`)
+- Queries the free CrossRef API (polite pool, no key required)
+- Detects fabricated DOIs, retracted papers, journal concentration, and author self-citation clusters
+- Capped at 20 lookups per scan with 10-second timeout per request
+
+---
+
+## 🔌 Plugin System
+
+PDF Sentinel includes an extensible plugin system via `PluginRegistry`. Plugins can inject custom detectors into four pipeline stages.
+
+### Plugin Stages
+
+| Stage | Trigger Point | Context Keys Available |
+|-------|--------------|----------------------|
+| `pre_analysis` | Before any analysis | `pdf_path` |
+| `post_decompress` | After qpdf decompression | `pdf_path`, `pdf_content` |
+| `post_extract` | After text extraction | `pdf_path`, `pdf_content`, `text`, partial `results` |
+| `post_analysis` | After all built-in detectors | `pdf_path`, `pdf_content`, `text`, full `results` |
+
+### Usage Example
+
+```python
+from pdf_sentinel import PDFAnalyzer, PluginRegistry
+
+registry = PluginRegistry()
+
+@registry.detector("watermark_check", stage="post_extract")
+def watermark_check(ctx):
+    text = ctx.get("text", "")
+    if "CONFIDENTIAL" in text.upper():
+        return [{"type": "watermark", "description": "Confidential watermark detected"}]
+    return []
+
+analyzer = PDFAnalyzer(plugins=registry)
+results = analyzer.analyze_pdf("file.pdf")
+print(results.get("watermark_check", []))
+```
+
+Plugins can also be registered imperatively:
+
+```python
+registry.register("my_check", my_function, stage="post_analysis", priority=50)
+```
+
 ---
 
 ## 🔒 Security
 
-### Security Status
+### Security Audit Results
 
-**Last Updated**: 2026-01-26  
-**CodeQL Scan**: ✅ 0 vulnerabilities  
-**Dependency Scan**: ⚠️ 1 known issue (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+**Last Updated**: 2026-01-26
+**CodeQL Scan**: ✅ 0 vulnerabilities (Critical: 0, High: 0, Medium: 0, Low: 0)
+**Dependency Scan**: ⚠️ 1 known issue (see [Known Issues](#-known-issues))
 
 ### Hardening Measures
 
@@ -330,18 +488,43 @@ RUN python -m spacy download en_core_web_sm
 - PII scanning limited to 100k characters
 - Timeout on subprocess calls (30s)
 - Resource-aware chunking (500 chars)
+- CrossRef lookups capped at 20 DOIs per scan
 
-#### 3. Input Validation
+#### 3. Secure File Handling
+```python
+# Temporary files are created in secure directories
+temp_dir = tempfile.mkdtemp(prefix='pdf_sentinel_')
+
+# Automatic cleanup in finally block
+try:
+    # Process files
+    pass
+finally:
+    shutil.rmtree(temp_dir)
+```
+
+#### 4. Input Validation
 - PDF file type validation
 - Sandboxed processing in temp directories
 - No user-controlled file paths
 - Subprocess uses list arguments (no shell injection)
 
-#### 4. No Unsafe Operations
+#### 5. No Unsafe Operations
 - ❌ No `eval()` or `exec()`
 - ❌ No `pickle.load()` on untrusted data
 - ❌ No `torch.load()` direct usage
 - ❌ No SQL injection vectors
+- ❌ No command injection (subprocess uses list arguments)
+
+#### 6. Error Handling
+- All exceptions properly caught and handled
+- No sensitive information in error messages
+- Graceful degradation on failures
+
+#### 7. No Hardcoded Secrets
+- No API keys in code
+- No credentials in configuration
+- Environment variables for sensitive config
 
 ### Dependency Security
 
@@ -349,11 +532,57 @@ RUN python -m spacy download en_core_web_sm
 |---------|---------|--------|
 | torch | ≥2.6.0 | ✅ Patched (CVE fixed) |
 | streamlit | ≥1.37.0 | ✅ Secure (PYSEC-2024-153 fixed) |
-| protobuf | <7,≥6.33.4 | ⚠️ CVE-2026-0994 (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)) |
+| protobuf | <7,≥6.33.4 | ⚠️ CVE-2026-0994 (see [Known Issues](#-known-issues)) |
 | presidio-analyzer | latest | ✅ Secure |
 | pdfid | latest | ✅ Secure |
 | spacy | latest | ✅ Secure |
 | yara-python | 4.5.0 | ✅ Secure |
+| PyPDF2 | 3.0.1 | ✅ Secure |
+| sentence-transformers | 2.3.1 | ✅ Secure |
+| numpy | 1.26.3 | ✅ Secure |
+| python-magic | 0.4.27 | ✅ Secure |
+
+### Threat Model
+
+#### Mitigated Threats
+
+✅ **Malicious PDF Execution**
+- PDFs are parsed, not executed
+- No JavaScript execution
+- No form actions triggered
+
+✅ **Path Traversal**
+- All file operations use absolute paths
+- Temp directories are randomly generated
+- No user-controlled file paths
+
+✅ **Denial of Service**
+- File size limits enforced
+- Timeout on qpdf operations (30s)
+- Resource cleanup guaranteed
+- PII scanning capped at 100k characters
+
+✅ **Code Injection**
+- No dynamic code execution
+- Subprocess arguments use list format (not shell)
+- Input sanitization on all user data
+
+✅ **Data Exfiltration**
+- No outbound network connections during analysis (except opt-in CrossRef)
+- Temporary files automatically deleted
+- No logging of sensitive content
+
+#### Residual Risks
+
+⚠️ **Resource Exhaustion** (Low Risk)
+- Large PDFs may consume significant memory
+- Mitigation: File size limits (200MB) and Docker resource limits
+- Recommendation: Deploy with resource limits
+
+⚠️ **Model Poisoning** (Low Risk)
+- ML model downloaded from HuggingFace
+- Mitigation: Can disable semantic detection
+- Recommendation: Use offline model cache in production (pre-baked in Docker)
 
 ### Production Deployment Checklist
 
@@ -365,7 +594,7 @@ RUN python -m spacy download en_core_web_sm
 - [ ] Enable HTTPS/TLS for web interface
 - [x] Set up regular dependency scanning (GitHub Actions with pip-audit)
 - [ ] Configure log monitoring
-- [x] Document security procedures (see [KNOWN_ISSUES.md](KNOWN_ISSUES.md))
+- [x] Document security procedures
 - [x] CPU optimization for limited hardware (torch thread limiting, forced CPU execution)
 - [x] Secure tmpfs mounts with size limits (/tmp: 2G, /home/appuser/.cache: 1G)
 
@@ -374,7 +603,7 @@ RUN python -m spacy download en_core_web_sm
 **CPU-Only Deployment** (Current Configuration):
 - ✅ Optimized for deployment on limited CPU hardware (e.g., Hugging Face Spaces)
 - ✅ Thread limiting via `MAX_CPU_THREADS` environment variable (default: 2)
-- ✅ SentenceTransformer forced to CPU mode (`device='cpu'`)
+- ✅ SentenceTransformer supports configurable device (`device` parameter, default: `'cpu'`)
 - ✅ Input validation for thread configuration
 - ⚠️ Semantic analysis may be slower without GPU acceleration
 
@@ -396,7 +625,6 @@ The following dependencies are installed but not yet fully utilized:
 **Current Implementation** (docker-compose.yml):
 
 ```yaml
-# docker-compose.yml
 services:
   pdf-sentinel:
     deploy:
@@ -414,11 +642,6 @@ services:
       - MAX_CPU_THREADS=${MAX_CPU_THREADS:-2}
 ```
 
-**Environment Variables:**
-- `CPU_LIMIT`: CPU limit (default: 2.0 cores)
-- `MEMORY_LIMIT`: Memory limit (default: 4G)
-- `MAX_CPU_THREADS`: PyTorch thread limit (default: 2 threads)
-
 **For CPU-Only Deployments:**
 - Minimum: 2 CPU cores, 2GB RAM
 - Recommended: 2-4 CPU cores, 4GB RAM
@@ -430,6 +653,66 @@ services:
 - RAM: 8GB+
 - Will enable dynamic LLM analysis and faster embeddings
 
+### Security Monitoring
+
+1. **Dependency Updates** — Monitor GitHub Security Advisories; run `pip-audit` regularly; update dependencies monthly.
+2. **Log Monitoring** — Monitor for unusual file sizes; track analysis failures; alert on repeated errors.
+3. **Resource Monitoring** — Memory usage, disk space (temp directory), CPU utilization.
+
+### Incident Response
+
+- **Report security issues** via [GitHub Security Advisories](https://github.com/dblcpm/pdf-sentinel-sandbox/security/advisories) — do not disclose publicly until patched.
+- **Expected response time**: 48 hours.
+- **Update procedure**: Pull latest code → Review changelog → Run security scans → Update dependencies → Test in staging → Deploy to production.
+
+### Compliance Notes
+
+- **Data Privacy**: No user data is stored permanently; all uploads are deleted after analysis; no telemetry or tracking.
+- **Audit Trail**: Consider enabling access logs for production; log analysis requests (without file content); monitor for abuse patterns.
+
+---
+
+## ⚠️ Known Issues
+
+### CVE-2026-0994: Protobuf JSON Recursion Depth Bypass
+
+**Status**: CANNOT BE FIXED (Dependency Conflict)
+**Severity**: Medium
+**Affected Package**: protobuf ≤ 6.33.4
+**Fixed In**: protobuf ≥ 7.0 (not yet released as stable)
+
+#### Description
+
+The protobuf library has a JSON recursion depth bypass vulnerability (CVE-2026-0994) that affects all versions up to and including 6.33.4.
+
+#### Why This Cannot Be Fixed
+
+- **Fix Requires**: protobuf ≥ 7.0
+- **Dependency Conflict**: streamlit (our core dependency) requires protobuf < 7.0
+- **Current Version**: We use protobuf 6.33.4 (latest compatible with streamlit)
+
+#### Mitigation
+
+1. **Input Validation**: PDF Sentinel validates and limits input sizes to prevent denial of service attacks.
+2. **Monitoring**: We actively monitor for updates to both protobuf and streamlit.
+3. **Upgrade Path**: Once streamlit supports protobuf 7.x, we will immediately upgrade.
+
+#### Resolution Timeline
+
+- **Short Term**: No fix available due to dependency conflict.
+- **Medium Term**: Waiting for streamlit to support protobuf 7.x (estimated Q2-Q3 2026).
+- **Long Term**: Will upgrade immediately when compatible versions are released.
+
+#### Workaround
+
+The vulnerability is temporarily ignored in our CI/CD pipeline (`pip-audit --ignore-vuln CVE-2026-0994`) with full documentation and tracking for future resolution.
+
+#### References
+
+- [CVE-2026-0994](https://nvd.nist.gov/vuln/detail/CVE-2026-0994)
+- [Protobuf Releases](https://github.com/protocolbuffers/protobuf/releases)
+- [Streamlit Dependencies](https://github.com/streamlit/streamlit)
+
 ---
 
 ## 📚 API Reference
@@ -438,34 +721,56 @@ services:
 
 ```python
 class PDFAnalyzer:
-    def __init__(self, yara_rules_path: str = "signatures.yara", 
-                 enable_semantic: bool = True)
-    
-    def _normalize_and_chunk(self, text: str, window_size: int = 500, 
-                            overlap: int = 100) -> List[str]
-        """Normalize text and split into sliding windows"""
-    
-    def detect_structural_risks(self, file_path: str) -> Dict[str, int]
-        """Detect dangerous PDF structures using pdfid"""
-    
-    def detect_pii(self, text: str) -> Dict[str, int]
-        """Detect PII using Presidio (100k char limit)"""
-    
-    def detect_invisible_text(self, pdf_content: str) -> List[Dict[str, any]]
-        """Detect hidden text patterns"""
-    
-    def scan_with_yara(self, content: str) -> List[Dict[str, any]]
-        """Pattern matching with YARA rules"""
-    
-    def detect_semantic_injection(self, text: str, threshold: float = 0.7) 
-        -> List[Dict[str, any]]
-        """ML-based injection detection (chunk-based)"""
-    
-    def analyze_pdf(self, pdf_path: str) -> Dict[str, any]
-        """Complete forensic analysis"""
-    
-    def get_risk_score(self, results: Dict[str, any]) -> Tuple[str, int]
-        """Calculate risk level and score"""
+    def __init__(
+        self,
+        yara_rules_path: str = "signatures.yara",
+        enable_semantic: bool = True,
+        enable_crossref: bool = False,
+        device: Optional[str] = None,
+        plugins: Optional[PluginRegistry] = None,
+    )
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `yara_rules_path` | `str` | `"signatures.yara"` | Path to YARA rules file |
+| `enable_semantic` | `bool` | `True` | Enable ML-based semantic detection |
+| `enable_crossref` | `bool` | `False` | Verify DOIs via CrossRef API (requires network) |
+| `device` | `str \| None` | `None` (→ `"cpu"`) | Torch device for embeddings (`'cpu'`, `'cuda'`, etc.) |
+| `plugins` | `PluginRegistry \| None` | `None` | Optional plugin registry with custom detectors |
+
+### Methods
+
+```python
+def analyze_pdf(self, pdf_path: str) -> Dict[str, any]
+    """Complete forensic analysis of a PDF file"""
+
+def get_risk_score(self, results: Dict[str, any]) -> Tuple[str, int]
+    """Calculate risk level and score (0-100)"""
+
+def detect_invisible_text(self, pdf_content: str) -> List[Dict[str, any]]
+    """Detect hidden text patterns in decompressed PDF content"""
+
+def scan_with_yara(self, content: str) -> List[Dict[str, any]]
+    """Pattern matching with YARA rules"""
+
+def detect_semantic_injection(self, text: str, threshold: float = 0.7) -> List[Dict[str, any]]
+    """ML-based injection detection using chunk-based embeddings"""
+
+def detect_structural_risks(self, file_path: str) -> Dict[str, int]
+    """Detect dangerous PDF structures using pdfid"""
+
+def detect_pii(self, text: str) -> Dict[str, int]
+    """Detect PII using Presidio (100k char limit)"""
+
+def detect_obfuscated_payloads(self, text: str) -> List[Dict[str, any]]
+    """Detect Base64-encoded payloads with recursive scanning"""
+
+def detect_image_anomalies(self, pdf_path: str) -> List[Dict[str, any]]
+    """Shannon entropy analysis for steganography detection"""
+
+def detect_citation_spam(self, text: str) -> Dict[str, any]
+    """Detect citation stuffing, link farming, and optionally verify DOIs"""
 ```
 
 ### Results Dictionary Structure
@@ -489,8 +794,29 @@ class PDFAnalyzer:
         'PHONE_NUMBER': int,
         'PERSON': int
     },
+    'obfuscated_payloads': List[Dict],
+    'image_anomalies': List[Dict],
+    'citation_spam': {
+        'is_spam': bool,
+        'url_count': int,
+        'doi_count': int,
+        'unique_domains': int,
+        'url_ratio_per_1000_chars': float,
+        'spam_indicators': List[str],
+        'crossref': Dict   # present when enable_crossref=True
+    },
     'errors': List[str]
 }
+```
+
+### CrossRef Module
+
+```python
+from pdf_sentinel.crossref import extract_dois, verify_dois, analyze_citation_patterns
+
+dois = extract_dois(text)                # extract DOIs from text
+verification = verify_dois(dois)         # validate against CrossRef API
+analysis = analyze_citation_patterns(verification)  # detect suspicious patterns
 ```
 
 ---
@@ -523,7 +849,7 @@ rule CustomPattern {
 pip install -r requirements.in
 
 # Validate code structure
-python -m py_compile analyzer.py app.py
+python -m py_compile app.py pdf_sentinel/analyzer.py pdf_sentinel/crossref.py pdf_sentinel/plugins.py
 
 # Run validation tests
 pytest  # (if test suite exists)
@@ -537,7 +863,8 @@ pytest  # (if test suite exists)
 | 1-10MB | 5-15 seconds | Medium |
 | > 10MB | 30+ seconds | Large |
 
-**Semantic Detection**: Adds 5-10 seconds for model loading (first run only, cached thereafter)
+**Semantic Detection**: Adds 5-10 seconds for model loading (first run only, cached thereafter).
+**CrossRef Verification**: Adds ~10 seconds per DOI checked (network dependent).
 
 ---
 
@@ -587,6 +914,7 @@ python -m spacy download en_core_web_sm
 2. **Use Docker** for consistent performance with pre-loaded models
 3. **Limit File Size** to < 10MB for best performance
 4. **Monitor Memory** when analyzing large PDFs
+5. **Disable CrossRef** verification to avoid network latency during batch scans
 
 ---
 
@@ -673,6 +1001,9 @@ This enhancement will make PDF Sentinel a **defense-in-depth** system, combining
 - 📊 **Citation Spam Detection**: Link farming and SEO spam analysis for academic journals
 - 🧠 **Expanded Adversarial Patterns**: 7 new jailbreak signatures (DAN mode, Developer Mode, etc.)
 - 🖥️ **CPU Optimization**: Thread limiting and forced CPU execution for limited hardware
+- 🔗 **CrossRef DOI Verification**: Opt-in citation integrity checking via CrossRef API
+- 🔌 **Plugin System**: Extensible `PluginRegistry` with four pipeline stages
+- 📦 **Package Restructure**: Moved core logic into `pdf_sentinel/` package with `pyproject.toml`
 
 **Production Hardening:**
 - Resource limits in docker-compose (CPU: 2.0, Memory: 4G)
@@ -685,6 +1016,7 @@ This enhancement will make PDF Sentinel a **defense-in-depth** system, combining
 - Image anomaly detection: Shannon entropy > 7.8 flags potential steganography
 - Citation spam metrics: URL density, domain counting, link farming detection
 - Obfuscated payload extraction and recursive semantic/YARA scanning
+- CrossRef DOI verification: fake DOI detection, retracted paper flagging, citation ring analysis
 
 **Security Improvements:**
 - Minimal GITHUB_TOKEN permissions in CI/CD workflows
@@ -694,9 +1026,10 @@ This enhancement will make PDF Sentinel a **defense-in-depth** system, combining
 
 **Technical Improvements:**
 - PyTorch thread limiting via MAX_CPU_THREADS (default: 2)
-- SentenceTransformer forced to CPU mode (`device='cpu'`)
+- SentenceTransformer configurable device parameter (`device='cpu'` default)
 - Refined chunking logic: text < 500 chars treated as single high-priority chunk
 - Environment variable configuration for resource limits
+- Backward-compatible `analyzer.py` shim at project root
 
 **Dependencies Added:**
 - Pillow (for future image processing enhancements)
@@ -793,6 +1126,7 @@ MIT License - see LICENSE file for details
 - **YARA Project** - Pattern matching engine
 - **Sentence Transformers** - Embedding models
 - **Microsoft Presidio** - PII detection framework
+- **CrossRef** - DOI verification API
 - **qpdf & pdfid** - PDF analysis tools
 - **Streamlit** - Web UI framework
 - **spacy** - NLP library
@@ -802,13 +1136,13 @@ MIT License - see LICENSE file for details
 ## 📧 Contact & Support
 
 - **Issues**: [GitHub Issues](https://github.com/dblcpm/pdf-sentinel-sandbox/issues)
-- **Security**: Report via GitHub Security Advisories
+- **Security**: Report via [GitHub Security Advisories](https://github.com/dblcpm/pdf-sentinel-sandbox/security/advisories)
 - **Documentation**: This README
 - **Updates**: Watch repository for releases
 
 ---
 
-**Last Updated**: 2026-01-26  
-**Version**: 3.0  
-**Status**: Production Ready ✅  
+**Last Updated**: 2026-02-07
+**Version**: 3.0
+**Status**: Production Ready ✅
 **Deployment**: CPU-Optimized (GPU support planned Q2 2026+)
