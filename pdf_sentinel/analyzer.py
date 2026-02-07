@@ -38,6 +38,7 @@ class PDFAnalyzer:
         self,
         yara_rules_path: str = "signatures.yara",
         enable_semantic: bool = True,
+        enable_crossref: bool = False,
         device: Optional[str] = None,
         plugins: Optional["PluginRegistry"] = None,
     ):
@@ -47,6 +48,8 @@ class PDFAnalyzer:
         Args:
             yara_rules_path: Path to YARA rules file
             enable_semantic: Whether to enable semantic detection
+            enable_crossref: Whether to verify DOIs against CrossRef API
+                             (requires network access, adds latency)
             device: Torch device for embeddings ('cpu', 'cuda', etc.).
                     Defaults to 'cpu'. Pro/GPU deployments can pass 'cuda'.
             plugins: Optional PluginRegistry with additional detectors
@@ -55,6 +58,7 @@ class PDFAnalyzer:
         self.yara_rules = None
         self.embedding_model = None
         self.enable_semantic = enable_semantic
+        self.enable_crossref = enable_crossref
         self.embedding_available = False
         self.pii_analyzer = None
         self.device = device or "cpu"
@@ -534,8 +538,8 @@ class PDFAnalyzer:
         url_pattern = re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+')
         urls = url_pattern.findall(text)
 
-        doi_pattern = re.compile(r'10\.\d{4,}/[^\s]+')
-        dois = doi_pattern.findall(text)
+        from pdf_sentinel.crossref import extract_dois
+        dois = extract_dois(text)
 
         unique_domains = set()
         for url in urls:
@@ -569,13 +573,29 @@ class PDFAnalyzer:
                 is_spam = True
                 spam_indicators.append(f"Link farming pattern: {avg_urls_per_domain:.1f} URLs per domain")
 
+        # CrossRef DOI verification (opt-in, requires network)
+        crossref_results = {}
+        if self.enable_crossref and dois:
+            try:
+                from pdf_sentinel.crossref import verify_dois, analyze_citation_patterns
+                verification = verify_dois(dois)
+                crossref_results = analyze_citation_patterns(verification)
+
+                # Promote CrossRef indicators to spam detection
+                for ind in crossref_results.get("indicators", []):
+                    is_spam = True
+                    spam_indicators.append(f"[CrossRef] {ind['description']}")
+            except Exception as e:
+                crossref_results = {"error": str(e)}
+
         return {
             'is_spam': is_spam,
             'url_count': url_count,
             'doi_count': doi_count,
             'unique_domains': domain_count,
             'url_ratio_per_1000_chars': round(url_ratio, 2),
-            'spam_indicators': spam_indicators
+            'spam_indicators': spam_indicators,
+            'crossref': crossref_results,
         }
 
     # ------------------------------------------------------------------

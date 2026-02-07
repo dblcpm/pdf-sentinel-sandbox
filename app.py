@@ -60,6 +60,12 @@ def main():
             disabled=not ENABLE_SEMANTIC
         )
         
+        enable_crossref = st.checkbox(
+            "CrossRef DOI Verification",
+            value=False,
+            help="Verify cited DOIs against CrossRef API (requires internet, adds latency)"
+        )
+
         show_technical = st.checkbox(
             "Show Technical Details",
             value=False,
@@ -87,17 +93,18 @@ def main():
         
         # Analyze button
         if st.button("🔍 Analyze PDF", type="primary"):
-            analyze_pdf_file(uploaded_file, semantic_threshold, show_technical)
+            analyze_pdf_file(uploaded_file, semantic_threshold, show_technical, enable_crossref)
 
 
-def analyze_pdf_file(uploaded_file, semantic_threshold: float, show_technical: bool):
+def analyze_pdf_file(uploaded_file, semantic_threshold: float, show_technical: bool, enable_crossref: bool = False):
     """
     Analyze the uploaded PDF file
-    
+
     Args:
         uploaded_file: Streamlit uploaded file object
         semantic_threshold: Threshold for semantic detection
         show_technical: Whether to show technical details
+        enable_crossref: Whether to verify DOIs against CrossRef
     """
     # Create temporary file for analysis
     temp_dir = None
@@ -106,13 +113,17 @@ def analyze_pdf_file(uploaded_file, semantic_threshold: float, show_technical: b
             # Create secure temporary directory
             temp_dir = tempfile.mkdtemp(prefix='pdf_sentinel_upload_')
             temp_pdf_path = os.path.join(temp_dir, uploaded_file.name)
-            
+
             # Save uploaded file
             with open(temp_pdf_path, 'wb') as f:
                 f.write(uploaded_file.getbuffer())
-            
+
             # Initialize analyzer
-            analyzer = PDFAnalyzer(yara_rules_path="signatures.yara", enable_semantic=ENABLE_SEMANTIC)
+            analyzer = PDFAnalyzer(
+                yara_rules_path="signatures.yara",
+                enable_semantic=ENABLE_SEMANTIC,
+                enable_crossref=enable_crossref,
+            )
             
             # Perform analysis
             results = analyzer.analyze_pdf(temp_pdf_path)
@@ -485,6 +496,47 @@ def display_advanced_threats(results: dict, show_technical: bool):
             st.metric("DOIs Found", citation_spam.get('doi_count', 0))
         with col3:
             st.metric("Unique Domains", citation_spam.get('unique_domains', 0))
+
+    # CrossRef verification results
+    crossref_data = citation_spam.get('crossref', {})
+    if crossref_data and not crossref_data.get('error'):
+        st.markdown("#### 🔗 CrossRef DOI Verification")
+
+        cr_col1, cr_col2, cr_col3 = st.columns(3)
+        with cr_col1:
+            st.metric("DOIs Checked", crossref_data.get('total_checked', 0))
+        with cr_col2:
+            st.metric("Valid", crossref_data.get('valid_count', 0))
+        with cr_col3:
+            invalid_count = crossref_data.get('invalid_count', 0)
+            retracted_count = crossref_data.get('retracted_count', 0)
+            st.metric(
+                "Invalid / Retracted",
+                f"{invalid_count} / {retracted_count}",
+                delta="Risk" if (invalid_count > 0 or retracted_count > 0) else None,
+            )
+
+        cr_indicators = crossref_data.get('indicators', [])
+        for ind in cr_indicators:
+            severity = ind.get('severity', 'medium')
+            if severity == 'critical':
+                st.error(f"🚨 {ind['description']}")
+            elif severity == 'high':
+                st.warning(f"⚠️ {ind['description']}")
+            else:
+                st.info(f"ℹ️ {ind['description']}")
+
+        if show_technical and crossref_data.get('metadata'):
+            with st.expander("CrossRef metadata details"):
+                for doi, meta in crossref_data['metadata'].items():
+                    retracted_tag = " **[RETRACTED]**" if meta.get('retracted') else ""
+                    st.markdown(
+                        f"- `{doi}`{retracted_tag}: *{meta.get('title', 'N/A')}* "
+                        f"— {meta.get('journal', 'N/A')} ({meta.get('year', '?')})"
+                    )
+    elif crossref_data.get('error'):
+        st.markdown("#### 🔗 CrossRef DOI Verification")
+        st.warning(f"CrossRef lookup failed: {crossref_data['error']}")
 
 
 def display_summary(results: dict, risk_level: str, risk_score: int):
