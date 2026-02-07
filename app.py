@@ -7,7 +7,7 @@ import streamlit as st
 import os
 import tempfile
 from pathlib import Path
-from analyzer import PDFAnalyzer
+from pdf_sentinel import PDFAnalyzer
 
 
 # Check if semantic detection should be enabled
