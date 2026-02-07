@@ -107,10 +107,17 @@ class PDFAnalyzer:
                 
                 # If either detection found something, report it
                 if semantic_results or yara_results:
+                    decoded_preview = decoded_text[:200] + ('...' if len(decoded_text) > 200 else '')
                     detections.append({
                         'type': 'obfuscated_base64',
+                        'description': (
+                            'Base64-encoded content was found that contains suspicious data. '
+                            f'When decoded, the hidden text reads: "{decoded_preview}". '
+                            'This encoding technique is often used to conceal malicious instructions '
+                            'from security scanners.'
+                        ),
                         'encoded': base64_str[:100] + ('...' if len(base64_str) > 100 else ''),
-                        'decoded': decoded_text[:200] + ('...' if len(decoded_text) > 200 else ''),
+                        'decoded': decoded_preview,
                         'position': match.start(),
                         'semantic_matches': semantic_results,
                         'yara_matches': yara_results
@@ -257,8 +264,14 @@ class PDFAnalyzer:
             if text_content:
                 detections.append({
                     'type': 'white_rgb_text',
+                    'description': (
+                        'White text on white background detected. '
+                        'The PDF sets the text color to white (RGB 1,1,1) making it invisible to readers, '
+                        'but the hidden text can still be read by AI/LLM systems when processing the document.'
+                    ),
                     'pattern': '1 1 1 rg (white RGB)',
                     'content': text_content,
+                    'extracted_text': text_content,
                     'position': match.start()
                 })
         
@@ -269,8 +282,14 @@ class PDFAnalyzer:
             if text_content:
                 detections.append({
                     'type': 'white_grayscale_text',
+                    'description': (
+                        'White grayscale text detected. '
+                        'The PDF sets the text brightness to maximum (grayscale value 1) making it invisible, '
+                        'but the hidden text can still be read by AI/LLM systems when processing the document.'
+                    ),
                     'pattern': '1 g (white grayscale)',
                     'content': text_content,
+                    'extracted_text': text_content,
                     'position': match.start()
                 })
         
@@ -281,8 +300,14 @@ class PDFAnalyzer:
             if text_content:
                 detections.append({
                     'type': 'invisible_rendering_mode',
+                    'description': (
+                        'Invisible text rendering mode detected. '
+                        'The PDF uses rendering mode 3, which embeds text that is never displayed on screen, '
+                        'but the hidden text can still be read by AI/LLM systems when processing the document.'
+                    ),
                     'pattern': '3 Tr (invisible mode)',
                     'content': text_content,
+                    'extracted_text': text_content,
                     'position': match.start()
                 })
         
@@ -389,6 +414,68 @@ class PDFAnalyzer:
                 '/OpenAction': 0
             }
     
+    # Human-readable descriptions for YARA rules
+    YARA_RULE_DESCRIPTIONS = {
+        'SuspiciousKeywords': (
+            'Suspicious keywords commonly used in prompt injection attacks were found in the PDF text. '
+            'These phrases may attempt to manipulate AI/LLM systems that process this document.'
+        ),
+        'HiddenCommands': (
+            'Hidden commands or script references were found in the PDF structure. '
+            'These elements can execute code automatically when the document is opened, '
+            'posing a security risk to the reader.'
+        ),
+        'EncodedContent': (
+            'Multiple encoding or obfuscation methods were detected in the PDF. '
+            'While some encoding is normal, the combination found may indicate an attempt '
+            'to hide malicious content from security scanners.'
+        ),
+    }
+
+    # Human-readable labels for YARA string identifiers
+    YARA_STRING_DESCRIPTIONS = {
+        '$prompt1': 'Prompt injection phrase',
+        '$prompt2': 'Prompt injection phrase',
+        '$prompt3': 'Instruction override keyword',
+        '$prompt4': 'Instruction override phrase',
+        '$prompt5': 'Instruction injection phrase',
+        '$prompt6': 'System prompt reference',
+        '$prompt7': 'Role reassignment phrase',
+        '$prompt8': 'Role reassignment phrase',
+        '$prompt9': 'Impersonation phrase',
+        '$prompt10': 'Roleplay keyword',
+        '$llm1': 'AI/LLM reference',
+        '$llm2': 'AI/LLM reference',
+        '$llm3': 'AI/LLM reference',
+        '$llm4': 'AI/LLM reference',
+        '$llm5': 'Conversation role marker',
+        '$llm6': 'Conversation role marker',
+        '$exfil1': 'Potential data exfiltration command',
+        '$exfil2': 'Potential data exfiltration command',
+        '$exfil3': 'Potential data exfiltration command',
+        '$exfil4': 'Command-line tool reference',
+        '$exfil5': 'Command-line tool reference',
+        '$override1': 'Instruction override keyword',
+        '$override2': 'Security bypass keyword',
+        '$override3': 'Safety disable keyword',
+        '$override4': 'Safety disable phrase',
+        '$script1': 'JavaScript action reference',
+        '$script2': 'JavaScript code reference',
+        '$script3': 'Auto-execute on open reference',
+        '$script4': 'Additional auto-action reference',
+        '$script5': 'External launch reference',
+        '$script6': 'Form submission reference',
+        '$script7': 'Data import reference',
+        '$encode1': 'Hex encoding filter',
+        '$encode2': 'ASCII85 encoding filter',
+        '$encode3': 'LZW compression filter',
+        '$encode4': 'Flate compression filter',
+        '$encode5': 'Run-length encoding filter',
+        '$encode6': 'Fax encoding filter',
+        '$encode7': 'JBIG2 encoding filter',
+        '$encode8': 'DCT (JPEG) encoding filter',
+    }
+
     def scan_with_yara(self, content: str) -> List[Dict[str, any]]:
         """
         Scan content with YARA rules
@@ -409,6 +496,10 @@ class PDFAnalyzer:
             for match in yara_matches:
                 match_info = {
                     'rule': match.rule,
+                    'description': self.YARA_RULE_DESCRIPTIONS.get(
+                        match.rule,
+                        match.meta.get('description', f'YARA rule "{match.rule}" matched')
+                    ),
                     'tags': match.tags,
                     'meta': match.meta,
                     'strings': []
@@ -417,10 +508,15 @@ class PDFAnalyzer:
                 for string_match in match.strings:
                     # string_match is a StringMatch object with identifier and instances
                     for instance in string_match.instances:
+                        matched_text = instance.matched_data.decode('utf-8', errors='ignore')
                         match_info['strings'].append({
                             'offset': instance.offset,
                             'identifier': string_match.identifier,
-                            'data': instance.matched_data.decode('utf-8', errors='ignore')
+                            'data': matched_text,
+                            'explanation': (
+                                f'{self.YARA_STRING_DESCRIPTIONS.get(string_match.identifier, "Pattern match")}'
+                                f' — the text "{matched_text}" was found in the PDF'
+                            ),
                         })
                 
                 matches.append(match_info)
@@ -598,12 +694,20 @@ class PDFAnalyzer:
                                         
                                         # Flag images with extremely high entropy (> 7.8)
                                         if entropy > 7.8:
+                                            size_kb = len(image_data) / 1024
                                             detections.append({
                                                 'page': page_num + 1,
                                                 'object_name': obj_name,
                                                 'entropy': round(entropy, 3),
                                                 'size_bytes': len(image_data),
-                                                'risk': 'potential_steganography_or_malware'
+                                                'risk': 'potential_steganography_or_malware',
+                                                'description': (
+                                                    f'Suspicious image on page {page_num + 1} '
+                                                    f'({size_kb:.1f} KB, entropy: {entropy:.3f}). '
+                                                    f'The image has unusually high data entropy (above 7.8 out of 8.0), '
+                                                    f'which may indicate hidden data embedded within the image '
+                                                    f'(steganography) or concealed malicious content.'
+                                                ),
                                             })
                                 
                                 except Exception as e:
@@ -726,7 +830,10 @@ class PDFAnalyzer:
             success, message = self.uncompress_pdf(pdf_path, uncompressed_path)
             
             if not success:
-                results['errors'].append(f"Uncompression failed: {message}")
+                results['errors'].append(
+                    "PDF preparation failed: The PDF file could not be decompressed for analysis. "
+                    f"Reason: {message}. Some detection checks may be incomplete."
+                )
                 return results
             
             results['uncompressed'] = True
@@ -766,7 +873,11 @@ class PDFAnalyzer:
                 results['semantic_detections'] = []
             
         except Exception as e:
-            results['errors'].append(f"Analysis error: {str(e)}")
+            results['errors'].append(
+                "An unexpected error occurred during PDF analysis. "
+                f"Details: {str(e)}. "
+                "The file may be corrupted or use an unsupported format."
+            )
         
         finally:
             # Clean up temporary directory
@@ -774,7 +885,10 @@ class PDFAnalyzer:
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
-                    results['errors'].append(f"Cleanup error: {str(e)}")
+                    results['errors'].append(
+                        f"Could not remove temporary files: {str(e)}. "
+                        "This does not affect the analysis results."
+                    )
         
         return results
     
