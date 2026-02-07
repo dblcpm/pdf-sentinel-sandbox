@@ -352,7 +352,7 @@ class PDFAnalyzer:
             Dictionary with structural risk counts
         """
         try:
-            # Use pdfid Python library directly
+            # Import pdfid here to gracefully handle cases where it's not installed
             import pdfid.pdfid as pdfid_module
             
             # Run PDFiD analysis
@@ -373,7 +373,11 @@ class PDFAnalyzer:
                 count_str = keyword_elem.getAttribute('Count')
                 
                 if name in dangerous_tags:
-                    dangerous_tags[name] = int(count_str) if count_str else 0
+                    try:
+                        dangerous_tags[name] = int(count_str) if count_str else 0
+                    except (ValueError, TypeError):
+                        # Default to 0 if count is not a valid integer
+                        dangerous_tags[name] = 0
             
             return dangerous_tags
             
