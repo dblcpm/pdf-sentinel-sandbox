@@ -378,36 +378,36 @@ def display_privacy_results(results: dict, show_technical: bool):
     with col1:
         js_count = structural_risks.get('/JS', 0)
         st.metric(
-            "/JS",
+            PDFAnalyzer.STRUCTURAL_TAG_LABELS.get('/JS', '/JS'),
             js_count,
-            help="JavaScript code references",
+            help=PDFAnalyzer.STRUCTURAL_TAG_DESCRIPTIONS.get('/JS', 'JavaScript code references'),
             delta="⚠️ Risk" if js_count > 0 else None
         )
     
     with col2:
         javascript_count = structural_risks.get('/JavaScript', 0)
         st.metric(
-            "/JavaScript",
+            PDFAnalyzer.STRUCTURAL_TAG_LABELS.get('/JavaScript', '/JavaScript'),
             javascript_count,
-            help="JavaScript actions",
+            help=PDFAnalyzer.STRUCTURAL_TAG_DESCRIPTIONS.get('/JavaScript', 'JavaScript actions'),
             delta="⚠️ Risk" if javascript_count > 0 else None
         )
     
     with col3:
         aa_count = structural_risks.get('/AA', 0)
         st.metric(
-            "/AA",
+            PDFAnalyzer.STRUCTURAL_TAG_LABELS.get('/AA', '/AA'),
             aa_count,
-            help="Additional Actions (auto-execute)",
+            help=PDFAnalyzer.STRUCTURAL_TAG_DESCRIPTIONS.get('/AA', 'Additional Actions (auto-execute)'),
             delta="⚠️ Risk" if aa_count > 0 else None
         )
     
     with col4:
         openaction_count = structural_risks.get('/OpenAction', 0)
         st.metric(
-            "/OpenAction",
+            PDFAnalyzer.STRUCTURAL_TAG_LABELS.get('/OpenAction', '/OpenAction'),
             openaction_count,
-            help="Actions executed on document open",
+            help=PDFAnalyzer.STRUCTURAL_TAG_DESCRIPTIONS.get('/OpenAction', 'Actions executed on document open'),
             delta="⚠️ Risk" if openaction_count > 0 else None
         )
     
@@ -415,9 +415,11 @@ def display_privacy_results(results: dict, show_technical: bool):
         st.warning("""
         **⚠️ Security Warning:**  
         These structural elements can execute code automatically when the PDF is opened.
-        - **/JS** and **/JavaScript**: Can run arbitrary JavaScript code
-        - **/AA**: Additional Actions that auto-execute
-        - **/OpenAction**: Actions triggered when document is opened
+        
+        - **JavaScript Code** (`/JS`): Can run arbitrary JavaScript code that may install malware or steal data
+        - **JavaScript Actions** (`/JavaScript`): Can run code automatically in response to user interactions or document events
+        - **Auto-Execute Actions** (`/AA`): Actions that run automatically on events like printing, saving, or closing without user confirmation
+        - **Open-Triggered Action** (`/OpenAction`): Actions that execute immediately when the document is opened, commonly used by malicious PDFs
         """)
 
 

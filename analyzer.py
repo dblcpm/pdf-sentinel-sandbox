@@ -352,25 +352,14 @@ class PDFAnalyzer:
             Dictionary with structural risk counts
         """
         try:
-            # Run pdfid via subprocess for stability
-            result = subprocess.run(
-                ['pdfid', file_path],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            # Use pdfid Python library directly
+            import pdfid.pdfid as pdfid_module
             
-            if result.returncode != 0:
-                return {
-                    'error': f'pdfid failed with exit code {result.returncode}',
-                    '/JS': 0,
-                    '/JavaScript': 0,
-                    '/AA': 0,
-                    '/OpenAction': 0
-                }
+            # Run PDFiD analysis
+            result = pdfid_module.PDFiD(file_path)
             
-            # Parse stdout to count dangerous tags
-            output = result.stdout
+            # Parse keywords from XML DOM
+            keywords_elements = result.getElementsByTagName('Keyword')
             
             dangerous_tags = {
                 '/JS': 0,
@@ -379,27 +368,18 @@ class PDFAnalyzer:
                 '/OpenAction': 0
             }
             
-            for line in output.split('\n'):
-                for tag in dangerous_tags.keys():
-                    # Look for patterns like "/JS 5" or "/JavaScript 2"
-                    pattern = rf'{re.escape(tag)}\s+(\d+)'
-                    match = re.search(pattern, line)
-                    if match:
-                        dangerous_tags[tag] = int(match.group(1))
+            for keyword_elem in keywords_elements:
+                name = keyword_elem.getAttribute('Name')
+                count_str = keyword_elem.getAttribute('Count')
+                
+                if name in dangerous_tags:
+                    dangerous_tags[name] = int(count_str) if count_str else 0
             
             return dangerous_tags
             
-        except subprocess.TimeoutExpired:
+        except ImportError:
             return {
-                'error': 'pdfid timeout',
-                '/JS': 0,
-                '/JavaScript': 0,
-                '/AA': 0,
-                '/OpenAction': 0
-            }
-        except FileNotFoundError:
-            return {
-                'error': 'pdfid not found - install pdfid',
+                'error': 'pdfid library not found - install pdfid',
                 '/JS': 0,
                 '/JavaScript': 0,
                 '/AA': 0,
@@ -474,6 +454,37 @@ class PDFAnalyzer:
         '$encode6': 'Fax encoding filter',
         '$encode7': 'JBIG2 encoding filter',
         '$encode8': 'DCT (JPEG) encoding filter',
+    }
+
+    # Human-readable descriptions for structural PDF tags
+    STRUCTURAL_TAG_DESCRIPTIONS = {
+        '/JS': (
+            'JavaScript Code References — The PDF contains embedded JavaScript code. '
+            'This can execute arbitrary scripts when the document is opened in a PDF reader, '
+            'potentially installing malware or stealing data.'
+        ),
+        '/JavaScript': (
+            'JavaScript Actions — The PDF defines JavaScript action handlers. '
+            'These can run code automatically in response to user interactions or document events.'
+        ),
+        '/AA': (
+            'Additional Actions (Auto-Execute) — The PDF contains Additional Action triggers. '
+            'These cause actions to run automatically on events like printing, saving, or closing '
+            'the document — without any user confirmation.'
+        ),
+        '/OpenAction': (
+            'Open Action — The PDF defines an action that executes automatically when the document '
+            'is first opened. This is commonly used by malicious PDFs to launch '
+            'exploits immediately upon viewing.'
+        ),
+    }
+
+    # Human-readable labels for structural PDF tags
+    STRUCTURAL_TAG_LABELS = {
+        '/JS': 'JavaScript Code',
+        '/JavaScript': 'JavaScript Actions',
+        '/AA': 'Auto-Execute Actions',
+        '/OpenAction': 'Open-Triggered Action',
     }
 
     def scan_with_yara(self, content: str) -> List[Dict[str, any]]:
