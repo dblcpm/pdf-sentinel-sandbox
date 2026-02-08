@@ -277,7 +277,7 @@ class PDFAnalyzer:
 
             if pdfid_obj.errorOccured:
                 return {
-                    'error': f'pdfid error: {pdfid_obj.errorMessage}',
+                    'error': f'pdfid error: {pdfid_obj.errorMessage or "unknown error"}',
                     '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0
                 }
 
@@ -291,7 +291,7 @@ class PDFAnalyzer:
         except ImportError:
             return {'error': 'pdfid not found - install pdfid', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
         except SystemExit:
-            return {'error': f'pdfid error: file not accessible', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
+            return {'error': 'pdfid error: could not open file', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
         except Exception as e:
             return {'error': f'pdfid error: {str(e)}', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
 
