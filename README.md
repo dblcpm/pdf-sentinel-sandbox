@@ -54,7 +54,7 @@ The table below is an honest snapshot of what is implemented, what is missing, a
 | `python-magic` usage | Listed in `requirements.txt` / `pyproject.toml` but **never imported** |
 | `Pillow` usage | Installed; **not used** (image analysis uses raw PyPDF2 byte data) |
 | Test suite | **No tests exist.** README hedges with "if test suite exists" |
-| `LICENSE` file | README references it; **file does not exist in repo** |
+| ~~`LICENSE` file~~ | ~~README references it~~ — **added in this release** |
 | HTTPS / TLS | Noted as TODO in deployment checklist |
 | Log monitoring | Noted as TODO in deployment checklist |
 
@@ -217,7 +217,7 @@ Short-term (next release):
 - [ ] Add automated test suite (pytest)
 - [ ] Enforce 200 MB upload size limit in code
 - [ ] Remove unused `python-magic` and `Pillow` deps (or start using them)
-- [ ] Add `LICENSE` file to the repository
+- [x] Add `LICENSE` file to the repository
 
 Medium-term:
 - [ ] HTTPS/TLS support documentation
@@ -278,7 +278,7 @@ Initial release — invisible text, YARA, semantic detection, Streamlit UI, Dock
 
 ## License
 
-MIT — see `LICENSE` file (to be added).
+MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
