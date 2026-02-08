@@ -217,9 +217,22 @@ class PDFAnalyzer:
         """Detect invisible text in PDF using regex patterns."""
         detections = []
 
-        pattern1 = re.compile(r'(1\s+1\s+1\s+rg.*?)(BT.*?ET)', re.DOTALL)
-        pattern2 = re.compile(r'(1\s+g.*?)(BT.*?ET)', re.DOTALL)
-        pattern3 = re.compile(r'(3\s+Tr.*?)(BT.*?ET)', re.DOTALL)
+        # Pattern 1: White RGB text (1 1 1 rg) - matches both before and inside BT...ET
+        # Matches: "1 1 1 rg BT..." or "BT ... 1 1 1 rg ..."
+        pattern1 = re.compile(r'BT.*?1\s+1\s+1\s+rg.*?ET|1\s+1\s+1\s+rg.*?BT.*?ET', re.DOTALL)
+        
+        # Pattern 2: White grayscale text (1 g) - matches both before and inside BT...ET
+        pattern2 = re.compile(r'BT.*?1\s+g(?:\s|/).*?ET|1\s+g.*?BT.*?ET', re.DOTALL)
+        
+        # Pattern 3: Invisible rendering mode (3 Tr) - matches both before and inside BT...ET
+        pattern3 = re.compile(r'BT.*?3\s+Tr.*?ET|3\s+Tr.*?BT.*?ET', re.DOTALL)
+        
+        # Pattern 4: Zero-size font (0 Tf)
+        pattern4 = re.compile(r'BT.*?0\s+Tf.*?ET', re.DOTALL)
+        
+        # Pattern 5: Black text (0 g or 0 0 0 rg) - potentially invisible on black background
+        pattern5 = re.compile(r'BT.*?0\s+g(?:\s|/).*?ET|0\s+g.*?BT.*?ET', re.DOTALL)
+        pattern6 = re.compile(r'BT.*?0\s+0\s+0\s+rg.*?ET|0\s+0\s+0\s+rg.*?BT.*?ET', re.DOTALL)
 
         pattern_info = [
             (pattern1, 'white_rgb_text', '1 1 1 rg (white RGB)',
@@ -234,21 +247,37 @@ class PDFAnalyzer:
              'Invisible text rendering mode detected. '
              'The PDF uses rendering mode 3, which embeds text that is never displayed on screen, '
              'but the hidden text can still be read by AI/LLM systems when processing the document.'),
+            (pattern4, 'zero_size_font', '0 Tf (zero-size font)',
+             'Zero-size font detected. '
+             'The PDF sets the font size to 0, making text invisible to readers, '
+             'but the hidden text can still be read by AI/LLM systems when processing the document.'),
+            (pattern5, 'black_grayscale_text', '0 g (black grayscale)',
+             'Black grayscale text detected. '
+             'The PDF sets the text brightness to minimum (grayscale value 0), which may be invisible on dark backgrounds, '
+             'but the hidden text can still be read by AI/LLM systems when processing the document.'),
+            (pattern6, 'black_rgb_text', '0 0 0 rg (black RGB)',
+             'Black RGB text detected. '
+             'The PDF sets the text color to black (RGB 0,0,0), which may be invisible on dark backgrounds, '
+             'but the hidden text can still be read by AI/LLM systems when processing the document.'),
         ]
 
         for pattern, ptype, plabel, pdesc in pattern_info:
             for match in pattern.finditer(pdf_content):
-                text_obj = match.group(2)
-                text_content = self._extract_text_from_object(text_obj)
-                if text_content:
-                    detections.append({
-                        'type': ptype,
-                        'description': pdesc,
-                        'pattern': plabel,
-                        'content': text_content,
-                        'extracted_text': text_content,
-                        'position': match.start()
-                    })
+                # Extract the full matched text block
+                text_obj = match.group(0)
+                # Extract BT...ET portion for text extraction
+                bt_match = re.search(r'BT.*?ET', text_obj, re.DOTALL)
+                if bt_match:
+                    text_content = self._extract_text_from_object(bt_match.group(0))
+                    if text_content:
+                        detections.append({
+                            'type': ptype,
+                            'description': pdesc,
+                            'pattern': plabel,
+                            'content': text_content,
+                            'extracted_text': text_content,
+                            'position': match.start()
+                        })
 
         return detections
 
@@ -703,44 +732,114 @@ class PDFAnalyzer:
 
         return results
 
-    def get_risk_score(self, results: Dict[str, any]) -> Tuple[str, int]:
-        """Calculate risk score based on analysis results."""
+    def get_risk_score(self, results: Dict[str, any]) -> Tuple[str, int, List[Dict]]:
+        """Calculate risk score based on analysis results.
+        
+        Returns:
+            Tuple of (risk_level, score, breakdown) where breakdown is a list of dicts
+            with keys: 'factor', 'points', 'detail'
+        """
         score = 0
+        breakdown = []
 
         structural_risks = results.get('structural_risks', {})
         has_critical_structural_risk = False
 
-        if structural_risks.get('/JS', 0) > 0 or structural_risks.get('/JavaScript', 0) > 0:
-            score += 50
+        # Check for /JS or /JavaScript
+        js_count = structural_risks.get('/JS', 0)
+        javascript_count = structural_risks.get('/JavaScript', 0)
+        if js_count > 0 or javascript_count > 0:
+            points = 50
+            score += points
             has_critical_structural_risk = True
+            breakdown.append({
+                'factor': '/JS or /JavaScript structural risk',
+                'points': points,
+                'detail': f'{js_count} /JS tag(s), {javascript_count} /JavaScript tag(s) found'
+            })
 
-        if structural_risks.get('/AA', 0) > 0:
-            score += 30
+        # Check for /AA
+        aa_count = structural_risks.get('/AA', 0)
+        if aa_count > 0:
+            points = 30
+            score += points
             has_critical_structural_risk = True
+            breakdown.append({
+                'factor': '/AA (Additional Actions) structural risk',
+                'points': points,
+                'detail': f'{aa_count} /AA tag(s) found'
+            })
 
-        if structural_risks.get('/OpenAction', 0) > 0:
-            score += 30
+        # Check for /OpenAction
+        openaction_count = structural_risks.get('/OpenAction', 0)
+        if openaction_count > 0:
+            points = 30
+            score += points
             has_critical_structural_risk = True
+            breakdown.append({
+                'factor': '/OpenAction structural risk',
+                'points': points,
+                'detail': f'{openaction_count} /OpenAction tag(s) found'
+            })
 
-        score += len(results.get('invisible_text', [])) * 20
+        # Invisible text
+        invisible_count = len(results.get('invisible_text', []))
+        if invisible_count > 0:
+            points = invisible_count * 20
+            score += points
+            breakdown.append({
+                'factor': 'Invisible text detection',
+                'points': points,
+                'detail': f'{invisible_count} instance(s) × 20 pts each'
+            })
 
+        # YARA matches
         for match in results.get('yara_matches', []):
             if match['rule'] == 'SuspiciousKeywords':
-                score += len(match.get('strings', [])) * 15
+                string_count = len(match.get('strings', []))
+                points = string_count * 15
+                score += points
+                breakdown.append({
+                    'factor': f'YARA: {match["rule"]}',
+                    'points': points,
+                    'detail': f'{string_count} string match(es) × 15 pts each'
+                })
             elif match['rule'] == 'HiddenCommands':
-                score += len(match.get('strings', [])) * 25
+                string_count = len(match.get('strings', []))
+                points = string_count * 25
+                score += points
+                breakdown.append({
+                    'factor': f'YARA: {match["rule"]}',
+                    'points': points,
+                    'detail': f'{string_count} string match(es) × 25 pts each'
+                })
             elif match['rule'] == 'EncodedContent':
-                score += 10
+                points = 10
+                score += points
+                breakdown.append({
+                    'factor': f'YARA: {match["rule"]}',
+                    'points': points,
+                    'detail': 'Encoded content detected'
+                })
 
-        for detection in results.get('semantic_detections', []):
+        # Semantic detections
+        semantic_detections = results.get('semantic_detections', [])
+        for i, detection in enumerate(semantic_detections, 1):
             similarity = detection.get('similarity', 0)
             if similarity >= 0.9:
-                score += 30
+                points = 30
             elif similarity >= 0.8:
-                score += 20
+                points = 20
             else:
-                score += 10
+                points = 10
+            score += points
+            breakdown.append({
+                'factor': f'Semantic detection #{i}',
+                'points': points,
+                'detail': f'Similarity: {similarity:.2f}'
+            })
 
+        # Determine risk level
         if has_critical_structural_risk:
             if score >= 80:
                 risk_level = "CRITICAL"
@@ -757,4 +856,4 @@ class PDFAnalyzer:
         else:
             risk_level = "CLEAN"
 
-        return risk_level, min(score, 100)
+        return risk_level, min(score, 100), breakdown
