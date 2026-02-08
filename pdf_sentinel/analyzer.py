@@ -34,6 +34,9 @@ except (ValueError, TypeError):
 class PDFAnalyzer:
     """Main analyzer class for PDF forensic analysis."""
 
+    # Maximum file size: 200 MB (prevents DoS from oversized uploads)
+    MAX_FILE_SIZE = 200 * 1024 * 1024
+
     def __init__(
         self,
         yara_rules_path: str = "signatures.yara",
@@ -626,6 +629,49 @@ class PDFAnalyzer:
     # Main pipeline
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def validate_pdf(pdf_path: str, max_size: int = None) -> Tuple[bool, str]:
+        """
+        Validate that a file is a real PDF within size limits.
+
+        Args:
+            pdf_path: Path to the file
+            max_size: Maximum allowed size in bytes (default: MAX_FILE_SIZE)
+
+        Returns:
+            Tuple of (is_valid, reason)
+        """
+        if max_size is None:
+            max_size = PDFAnalyzer.MAX_FILE_SIZE
+
+        file_size = os.path.getsize(pdf_path)
+        if file_size > max_size:
+            return False, f"File size {file_size / (1024*1024):.1f} MB exceeds {max_size / (1024*1024):.0f} MB limit"
+
+        # MIME type validation via python-magic
+        try:
+            import magic
+            mime = magic.from_file(pdf_path, mime=True)
+            if mime != "application/pdf":
+                return False, f"File MIME type is '{mime}', expected 'application/pdf'"
+        except ImportError:
+            # python-magic not installed — fall back to header check
+            pass
+        except Exception:
+            # libmagic unavailable — fall back to header check
+            pass
+
+        # PDF header check (always runs as a fallback / second layer)
+        try:
+            with open(pdf_path, 'rb') as f:
+                header = f.read(8)
+            if not header.startswith(b'%PDF'):
+                return False, "File does not start with %PDF header — not a valid PDF"
+        except OSError as e:
+            return False, f"Cannot read file: {e}"
+
+        return True, "OK"
+
     def analyze_pdf(self, pdf_path: str) -> Dict[str, any]:
         """Perform complete forensic analysis on a PDF file."""
         results = {
@@ -642,6 +688,12 @@ class PDFAnalyzer:
             'citation_spam': {},
             'errors': []
         }
+
+        # Validate file before proceeding
+        is_valid, reason = self.validate_pdf(pdf_path)
+        if not is_valid:
+            results['errors'].append(f"File rejected: {reason}")
+            return results
 
         # Plugin context dict shared across stages
         ctx = {"pdf_path": pdf_path, "results": results}

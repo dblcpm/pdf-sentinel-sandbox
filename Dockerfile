@@ -30,6 +30,7 @@ RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
 # Copy application files
+COPY --chown=appuser:appuser pdf_sentinel/ pdf_sentinel/
 COPY --chown=appuser:appuser app.py .
 COPY --chown=appuser:appuser analyzer.py .
 COPY --chown=appuser:appuser signatures.yara .

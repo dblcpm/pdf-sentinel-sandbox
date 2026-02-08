@@ -76,11 +76,11 @@ def main():
     # File uploader
     st.header("Upload PDF File")
     uploaded_file = st.file_uploader(
-        "Choose a PDF file to analyze",
+        "Choose a PDF file to analyze (max 200 MB)",
         type=['pdf'],
         help="Upload a PDF file for forensic analysis"
     )
-    
+
     if uploaded_file is not None:
         # Display file info
         col1, col2, col3 = st.columns(3)
@@ -91,9 +91,14 @@ def main():
         with col3:
             file_type = uploaded_file.type
             st.metric("Type", file_type)
-        
-        # Analyze button
-        if st.button("🔍 Analyze PDF", type="primary"):
+
+        # File size guard (200 MB)
+        if uploaded_file.size > PDFAnalyzer.MAX_FILE_SIZE:
+            st.error(
+                f"File too large ({uploaded_file.size / (1024*1024):.1f} MB). "
+                f"Maximum allowed size is {PDFAnalyzer.MAX_FILE_SIZE / (1024*1024):.0f} MB."
+            )
+        elif st.button("🔍 Analyze PDF", type="primary"):
             analyze_pdf_file(uploaded_file, semantic_threshold, show_technical, enable_crossref)
 
 
