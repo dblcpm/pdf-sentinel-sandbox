@@ -217,9 +217,22 @@ class PDFAnalyzer:
         """Detect invisible text in PDF using regex patterns."""
         detections = []
 
-        pattern1 = re.compile(r'(1\s+1\s+1\s+rg.*?)(BT.*?ET)', re.DOTALL)
-        pattern2 = re.compile(r'(1\s+g.*?)(BT.*?ET)', re.DOTALL)
-        pattern3 = re.compile(r'(3\s+Tr.*?)(BT.*?ET)', re.DOTALL)
+        # Pattern 1: White RGB text (1 1 1 rg) - matches both before and inside BT...ET
+        # Matches: "1 1 1 rg BT..." or "BT ... 1 1 1 rg ..."
+        pattern1 = re.compile(r'BT.*?1\s+1\s+1\s+rg.*?ET|1\s+1\s+1\s+rg.*?BT.*?ET', re.DOTALL)
+        
+        # Pattern 2: White grayscale text (1 g) - matches both before and inside BT...ET
+        pattern2 = re.compile(r'BT.*?1\s+g(?:\s|/).*?ET|1\s+g.*?BT.*?ET', re.DOTALL)
+        
+        # Pattern 3: Invisible rendering mode (3 Tr) - matches both before and inside BT...ET
+        pattern3 = re.compile(r'BT.*?3\s+Tr.*?ET|3\s+Tr.*?BT.*?ET', re.DOTALL)
+        
+        # Pattern 4: Zero-size font (0 Tf)
+        pattern4 = re.compile(r'BT.*?0\s+Tf.*?ET', re.DOTALL)
+        
+        # Pattern 5: Black text (0 g or 0 0 0 rg) - potentially invisible on black background
+        pattern5 = re.compile(r'BT.*?0\s+g(?:\s|/).*?ET|0\s+g.*?BT.*?ET', re.DOTALL)
+        pattern6 = re.compile(r'BT.*?0\s+0\s+0\s+rg.*?ET|0\s+0\s+0\s+rg.*?BT.*?ET', re.DOTALL)
 
         pattern_info = [
             (pattern1, 'white_rgb_text', '1 1 1 rg (white RGB)',
@@ -234,21 +247,37 @@ class PDFAnalyzer:
              'Invisible text rendering mode detected. '
              'The PDF uses rendering mode 3, which embeds text that is never displayed on screen, '
              'but the hidden text can still be read by AI/LLM systems when processing the document.'),
+            (pattern4, 'zero_size_font', '0 Tf (zero-size font)',
+             'Zero-size font detected. '
+             'The PDF sets the font size to 0, making text invisible to readers, '
+             'but the hidden text can still be read by AI/LLM systems when processing the document.'),
+            (pattern5, 'black_grayscale_text', '0 g (black grayscale)',
+             'Black grayscale text detected. '
+             'The PDF sets the text brightness to minimum (grayscale value 0), which may be invisible on dark backgrounds, '
+             'but the hidden text can still be read by AI/LLM systems when processing the document.'),
+            (pattern6, 'black_rgb_text', '0 0 0 rg (black RGB)',
+             'Black RGB text detected. '
+             'The PDF sets the text color to black (RGB 0,0,0), which may be invisible on dark backgrounds, '
+             'but the hidden text can still be read by AI/LLM systems when processing the document.'),
         ]
 
         for pattern, ptype, plabel, pdesc in pattern_info:
             for match in pattern.finditer(pdf_content):
-                text_obj = match.group(2)
-                text_content = self._extract_text_from_object(text_obj)
-                if text_content:
-                    detections.append({
-                        'type': ptype,
-                        'description': pdesc,
-                        'pattern': plabel,
-                        'content': text_content,
-                        'extracted_text': text_content,
-                        'position': match.start()
-                    })
+                # Extract the full matched text block
+                text_obj = match.group(0)
+                # Extract BT...ET portion for text extraction
+                bt_match = re.search(r'BT.*?ET', text_obj, re.DOTALL)
+                if bt_match:
+                    text_content = self._extract_text_from_object(bt_match.group(0))
+                    if text_content:
+                        detections.append({
+                            'type': ptype,
+                            'description': pdesc,
+                            'pattern': plabel,
+                            'content': text_content,
+                            'extracted_text': text_content,
+                            'position': match.start()
+                        })
 
         return detections
 
