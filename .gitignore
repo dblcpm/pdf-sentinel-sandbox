@@ -48,3 +48,6 @@ temp/
 
 # Logs
 *.log
+
+# Test
+.pytest_cache/
