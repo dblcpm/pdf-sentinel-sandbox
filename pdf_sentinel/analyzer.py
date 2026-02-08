@@ -270,33 +270,28 @@ class PDFAnalyzer:
     def detect_structural_risks(self, file_path: str) -> Dict[str, any]:
         """Detect structural risks in PDF using pdfid."""
         try:
-            result = subprocess.run(
-                ['pdfid', file_path],
-                capture_output=True, text=True, timeout=30
-            )
+            from pdfid.pdfid import PDFiD, cPDFiD
 
-            if result.returncode != 0:
+            xmlDoc = PDFiD(file_path)
+            pdfid_obj = cPDFiD(xmlDoc, force=True)
+
+            if pdfid_obj.errorOccured:
                 return {
-                    'error': f'pdfid failed with exit code {result.returncode}',
+                    'error': f'pdfid error: {pdfid_obj.errorMessage or "unknown error"}',
                     '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0
                 }
 
-            output = result.stdout
-            dangerous_tags = {'/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
+            return {
+                '/JS': pdfid_obj.js.count,
+                '/JavaScript': pdfid_obj.javascript.count,
+                '/AA': pdfid_obj.aa.count,
+                '/OpenAction': pdfid_obj.openaction.count,
+            }
 
-            for line in output.split('\n'):
-                for tag in dangerous_tags:
-                    pattern = rf'{re.escape(tag)}\s+(\d+)'
-                    match = re.search(pattern, line)
-                    if match:
-                        dangerous_tags[tag] = int(match.group(1))
-
-            return dangerous_tags
-
-        except subprocess.TimeoutExpired:
-            return {'error': 'pdfid timeout', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
-        except FileNotFoundError:
+        except ImportError:
             return {'error': 'pdfid not found - install pdfid', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
+        except SystemExit:
+            return {'error': 'pdfid error: could not open file', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
         except Exception as e:
             return {'error': f'pdfid error: {str(e)}', '/JS': 0, '/JavaScript': 0, '/AA': 0, '/OpenAction': 0}
 
