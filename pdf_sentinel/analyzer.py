@@ -732,44 +732,114 @@ class PDFAnalyzer:
 
         return results
 
-    def get_risk_score(self, results: Dict[str, any]) -> Tuple[str, int]:
-        """Calculate risk score based on analysis results."""
+    def get_risk_score(self, results: Dict[str, any]) -> Tuple[str, int, List[Dict]]:
+        """Calculate risk score based on analysis results.
+        
+        Returns:
+            Tuple of (risk_level, score, breakdown) where breakdown is a list of dicts
+            with keys: 'factor', 'points', 'detail'
+        """
         score = 0
+        breakdown = []
 
         structural_risks = results.get('structural_risks', {})
         has_critical_structural_risk = False
 
-        if structural_risks.get('/JS', 0) > 0 or structural_risks.get('/JavaScript', 0) > 0:
-            score += 50
+        # Check for /JS or /JavaScript
+        js_count = structural_risks.get('/JS', 0)
+        javascript_count = structural_risks.get('/JavaScript', 0)
+        if js_count > 0 or javascript_count > 0:
+            points = 50
+            score += points
             has_critical_structural_risk = True
+            breakdown.append({
+                'factor': '/JS or /JavaScript structural risk',
+                'points': points,
+                'detail': f'{js_count} /JS tag(s), {javascript_count} /JavaScript tag(s) found'
+            })
 
-        if structural_risks.get('/AA', 0) > 0:
-            score += 30
+        # Check for /AA
+        aa_count = structural_risks.get('/AA', 0)
+        if aa_count > 0:
+            points = 30
+            score += points
             has_critical_structural_risk = True
+            breakdown.append({
+                'factor': '/AA (Additional Actions) structural risk',
+                'points': points,
+                'detail': f'{aa_count} /AA tag(s) found'
+            })
 
-        if structural_risks.get('/OpenAction', 0) > 0:
-            score += 30
+        # Check for /OpenAction
+        openaction_count = structural_risks.get('/OpenAction', 0)
+        if openaction_count > 0:
+            points = 30
+            score += points
             has_critical_structural_risk = True
+            breakdown.append({
+                'factor': '/OpenAction structural risk',
+                'points': points,
+                'detail': f'{openaction_count} /OpenAction tag(s) found'
+            })
 
-        score += len(results.get('invisible_text', [])) * 20
+        # Invisible text
+        invisible_count = len(results.get('invisible_text', []))
+        if invisible_count > 0:
+            points = invisible_count * 20
+            score += points
+            breakdown.append({
+                'factor': 'Invisible text detection',
+                'points': points,
+                'detail': f'{invisible_count} instance(s) × 20 pts each'
+            })
 
+        # YARA matches
         for match in results.get('yara_matches', []):
             if match['rule'] == 'SuspiciousKeywords':
-                score += len(match.get('strings', [])) * 15
+                string_count = len(match.get('strings', []))
+                points = string_count * 15
+                score += points
+                breakdown.append({
+                    'factor': f'YARA: {match["rule"]}',
+                    'points': points,
+                    'detail': f'{string_count} string match(es) × 15 pts each'
+                })
             elif match['rule'] == 'HiddenCommands':
-                score += len(match.get('strings', [])) * 25
+                string_count = len(match.get('strings', []))
+                points = string_count * 25
+                score += points
+                breakdown.append({
+                    'factor': f'YARA: {match["rule"]}',
+                    'points': points,
+                    'detail': f'{string_count} string match(es) × 25 pts each'
+                })
             elif match['rule'] == 'EncodedContent':
-                score += 10
+                points = 10
+                score += points
+                breakdown.append({
+                    'factor': f'YARA: {match["rule"]}',
+                    'points': points,
+                    'detail': 'Encoded content detected'
+                })
 
-        for detection in results.get('semantic_detections', []):
+        # Semantic detections
+        semantic_detections = results.get('semantic_detections', [])
+        for i, detection in enumerate(semantic_detections, 1):
             similarity = detection.get('similarity', 0)
             if similarity >= 0.9:
-                score += 30
+                points = 30
             elif similarity >= 0.8:
-                score += 20
+                points = 20
             else:
-                score += 10
+                points = 10
+            score += points
+            breakdown.append({
+                'factor': f'Semantic detection #{i}',
+                'points': points,
+                'detail': f'Similarity: {similarity:.2f}'
+            })
 
+        # Determine risk level
         if has_critical_structural_risk:
             if score >= 80:
                 risk_level = "CRITICAL"
@@ -786,4 +856,4 @@ class PDFAnalyzer:
         else:
             risk_level = "CLEAN"
 
-        return risk_level, min(score, 100)
+        return risk_level, min(score, 100), breakdown

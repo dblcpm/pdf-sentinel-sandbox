@@ -7,6 +7,7 @@ import streamlit as st
 import os
 import tempfile
 from pathlib import Path
+from typing import List, Dict
 from pdf_sentinel import PDFAnalyzer
 
 
@@ -129,10 +130,10 @@ def analyze_pdf_file(uploaded_file, semantic_threshold: float, show_technical: b
             results = analyzer.analyze_pdf(temp_pdf_path)
             
             # Calculate risk score
-            risk_level, risk_score = analyzer.get_risk_score(results)
+            risk_level, risk_score, score_breakdown = analyzer.get_risk_score(results)
             
             # Display results
-            display_results(results, risk_level, risk_score, show_technical, semantic_threshold)
+            display_results(results, risk_level, risk_score, score_breakdown, show_technical, semantic_threshold)
     
     except Exception as e:
         st.error(f"❌ Error during analysis: {str(e)}")
@@ -147,7 +148,7 @@ def analyze_pdf_file(uploaded_file, semantic_threshold: float, show_technical: b
                 st.warning(f"Could not clean up temporary files: {str(e)}")
 
 
-def display_results(results: dict, risk_level: str, risk_score: int, 
+def display_results(results: dict, risk_level: str, risk_score: int, score_breakdown: List[Dict],
                    show_technical: bool, semantic_threshold: float):
     """
     Display analysis results
@@ -156,6 +157,7 @@ def display_results(results: dict, risk_level: str, risk_score: int,
         results: Analysis results dictionary
         risk_level: Risk level string
         risk_score: Risk score (0-100)
+        score_breakdown: List of dicts with factor, points, and detail
         show_technical: Whether to show technical details
         semantic_threshold: Semantic detection threshold used
     """
@@ -216,7 +218,7 @@ def display_results(results: dict, risk_level: str, risk_score: int,
         display_advanced_threats(results, show_technical)
     
     with tab6:
-        display_summary(results, risk_level, risk_score)
+        display_summary(results, risk_level, risk_score, score_breakdown)
 
 
 def display_invisible_text_results(results: dict, show_technical: bool):
@@ -539,8 +541,15 @@ def display_advanced_threats(results: dict, show_technical: bool):
         st.warning(f"CrossRef lookup failed: {crossref_data['error']}")
 
 
-def display_summary(results: dict, risk_level: str, risk_score: int):
-    """Display analysis summary"""
+def display_summary(results: dict, risk_level: str, risk_score: int, score_breakdown: List[Dict]):
+    """Display analysis summary
+    
+    Args:
+        results: Analysis results dictionary
+        risk_level: Risk level string
+        risk_score: Risk score (0-100)
+        score_breakdown: List of score contribution dictionaries
+    """
     st.subheader("Analysis Summary")
     
     # Create summary metrics
@@ -601,6 +610,25 @@ def display_summary(results: dict, risk_level: str, risk_score: int):
             "Yes" if citation_spam.get('is_spam', False) else "No",
             help="Whether excessive URLs or link farming was detected"
         )
+    
+    # Risk Score Breakdown
+    st.subheader("Risk Score Breakdown")
+    
+    if score_breakdown:
+        st.markdown(f"**Total Risk Score: {risk_score}/100**")
+        st.markdown("The following factors contributed to the risk score:")
+        
+        # Create a table for the breakdown
+        for item in score_breakdown:
+            col_factor, col_points = st.columns([3, 1])
+            with col_factor:
+                st.markdown(f"**{item['factor']}**")
+                st.caption(item['detail'])
+            with col_points:
+                st.markdown(f"<div style='text-align: right; font-size: 1.2em; font-weight: bold;'>+{item['points']} pts</div>", unsafe_allow_html=True)
+            st.divider()
+    else:
+        st.success("✅ No risk factors detected - the PDF appears clean!")
     
     # Recommendations
     st.subheader("Recommendations")
