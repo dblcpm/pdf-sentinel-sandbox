@@ -33,6 +33,7 @@ RUN useradd -m -u 1000 appuser && \
 COPY --chown=appuser:appuser app.py .
 COPY --chown=appuser:appuser analyzer.py .
 COPY --chown=appuser:appuser signatures.yara .
+COPY --chown=appuser:appuser pdf_sentinel/ pdf_sentinel/
 
 # Switch to non-root user
 USER appuser
