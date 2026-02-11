@@ -514,44 +514,59 @@ class PDFAnalyzer:
                 for page_num in range(len(pdf_reader.pages)):
                     page = pdf_reader.pages[page_num]
 
-                    if '/XObject' in page.get('/Resources', {}):
-                        xobjects = page['/Resources']['/XObject'].get_object()
+                    # Resolve /Resources — may be an IndirectObject
+                    resources = page.get('/Resources')
+                    if resources is None:
+                        continue
+                    if hasattr(resources, 'get_object'):
+                        resources = resources.get_object()
 
-                        for obj_name in xobjects:
-                            obj = xobjects[obj_name]
+                    if '/XObject' not in resources:
+                        continue
 
-                            if obj.get('/Subtype') == '/Image':
-                                try:
-                                    image_data = obj.get_data()
+                    # Resolve /XObject dict — may also be indirect
+                    xobjects = resources['/XObject']
+                    if hasattr(xobjects, 'get_object'):
+                        xobjects = xobjects.get_object()
 
-                                    if len(image_data) > 0:
-                                        counter = Counter(image_data)
-                                        data_len = len(image_data)
+                    for obj_name in xobjects:
+                        # Each entry may itself be an IndirectObject
+                        obj = xobjects[obj_name]
+                        if hasattr(obj, 'get_object'):
+                            obj = obj.get_object()
 
-                                        entropy = 0.0
-                                        for count in counter.values():
-                                            p = count / data_len
-                                            if p > 0:
-                                                entropy -= p * math.log2(p)
+                        if obj.get('/Subtype') == '/Image':
+                            try:
+                                image_data = obj.get_data()
 
-                                        if entropy > 7.8:
-                                            size_kb = len(image_data) / 1024
-                                            detections.append({
-                                                'page': page_num + 1,
-                                                'object_name': obj_name,
-                                                'entropy': round(entropy, 3),
-                                                'size_bytes': len(image_data),
-                                                'risk': 'potential_steganography_or_malware',
-                                                'description': (
-                                                    f'Suspicious image on page {page_num + 1} '
-                                                    f'({size_kb:.1f} KB, entropy: {entropy:.3f}). '
-                                                    f'The image has unusually high data entropy (above 7.8 out of 8.0), '
-                                                    f'which may indicate hidden data embedded within the image '
-                                                    f'(steganography) or concealed malicious content.'
-                                                ),
-                                            })
-                                except Exception:
-                                    continue
+                                if len(image_data) > 0:
+                                    counter = Counter(image_data)
+                                    data_len = len(image_data)
+
+                                    entropy = 0.0
+                                    for count in counter.values():
+                                        p = count / data_len
+                                        if p > 0:
+                                            entropy -= p * math.log2(p)
+
+                                    if entropy > 7.8:
+                                        size_kb = len(image_data) / 1024
+                                        detections.append({
+                                            'page': page_num + 1,
+                                            'object_name': obj_name,
+                                            'entropy': round(entropy, 3),
+                                            'size_bytes': len(image_data),
+                                            'risk': 'potential_steganography_or_malware',
+                                            'description': (
+                                                f'Suspicious image on page {page_num + 1} '
+                                                f'({size_kb:.1f} KB, entropy: {entropy:.3f}). '
+                                                f'The image has unusually high data entropy (above 7.8 out of 8.0), '
+                                                f'which may indicate hidden data embedded within the image '
+                                                f'(steganography) or concealed malicious content.'
+                                            ),
+                                        })
+                            except Exception:
+                                continue
 
         except Exception as e:
             print(f"Image anomaly detection error: {e}")

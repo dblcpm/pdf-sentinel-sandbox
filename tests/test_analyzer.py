@@ -326,3 +326,132 @@ class TestPluginRegistry:
         detectors = reg.get_detectors("post_extract")
         assert detectors[0]["result_key"] == "first"
         assert detectors[1]["result_key"] == "second"
+
+
+# ---------------------------------------------------------------------------
+# detect_image_anomalies — IndirectObject resilience
+# ---------------------------------------------------------------------------
+
+class TestDetectImageAnomalies:
+    """
+    Tests that detect_image_anomalies handles PyPDF2 IndirectObject wrappers
+    without crashing, and still detects high-entropy images.
+    """
+
+    def setup_method(self):
+        self.analyzer = PDFAnalyzer.__new__(PDFAnalyzer)
+
+    def test_returns_list_on_minimal_pdf(self):
+        """A minimal PDF with no images should return an empty list, not crash."""
+        path = _write_tmp(_minimal_pdf())
+        try:
+            result = self.analyzer.detect_image_anomalies(path)
+            assert isinstance(result, list)
+            assert result == []
+        finally:
+            os.unlink(path)
+
+    def test_returns_list_on_non_pdf(self):
+        """A non-PDF file should be handled gracefully (empty list)."""
+        path = _write_tmp(b"not a pdf at all")
+        try:
+            result = self.analyzer.detect_image_anomalies(path)
+            assert isinstance(result, list)
+        finally:
+            os.unlink(path)
+
+    def test_indirect_object_mock(self):
+        """Simulate the IndirectObject pattern that caused the original crash."""
+        import unittest.mock as mock
+
+        # Create a mock that simulates IndirectObject behaviour:
+        # - has get_object() method that returns the real dict
+        # - does NOT support `in` or `__contains__` directly
+        class FakeIndirect:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def get_object(self):
+                return self._wrapped
+
+            # Deliberately omit __contains__ and __iter__ to mimic
+            # the real IndirectObject that causes the crash.
+
+        resources_dict = {}  # no XObject → should just skip
+        fake_resources = FakeIndirect(resources_dict)
+
+        fake_page = mock.MagicMock()
+        fake_page.get.return_value = fake_resources
+
+        fake_reader = mock.MagicMock()
+        fake_reader.pages = [fake_page]
+
+        with mock.patch("PyPDF2.PdfReader", return_value=fake_reader):
+            with mock.patch("builtins.open", mock.mock_open(read_data=b"%PDF")):
+                result = self.analyzer.detect_image_anomalies("/fake/path.pdf")
+                assert isinstance(result, list)
+                assert result == []
+
+    def test_indirect_xobject_entries(self):
+        """Simulate IndirectObject wrappers on individual XObject entries."""
+        import unittest.mock as mock
+
+        class FakeIndirect:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+            def get_object(self):
+                return self._wrapped
+
+        # Fake image object with low entropy (all same bytes) → should not flag
+        fake_image = mock.MagicMock()
+        fake_image.get.side_effect = lambda key, *a: {
+            '/Subtype': '/Image',
+        }.get(key, a[0] if a else None)
+        fake_image.get_data.return_value = b'\x00' * 1000  # entropy = 0
+
+        xobjects_dict = {'/Im0': FakeIndirect(fake_image)}
+        # Make xobjects_dict iterable like a real DictionaryObject
+        resources_dict = {'/XObject': FakeIndirect(xobjects_dict)}
+
+        fake_page = mock.MagicMock()
+        fake_page.get.return_value = FakeIndirect(resources_dict)
+
+        fake_reader = mock.MagicMock()
+        fake_reader.pages = [fake_page]
+
+        with mock.patch("PyPDF2.PdfReader", return_value=fake_reader):
+            with mock.patch("builtins.open", mock.mock_open(read_data=b"%PDF")):
+                result = self.analyzer.detect_image_anomalies("/fake/path.pdf")
+                assert isinstance(result, list)
+                # Low entropy image should not be flagged
+                assert result == []
+
+    def test_high_entropy_image_detected(self):
+        """Verify that a high-entropy image IS flagged (threshold 7.8)."""
+        import unittest.mock as mock
+
+        # Create near-uniform byte distribution → entropy close to 8.0
+        high_entropy_data = bytes(range(256)) * 100  # 25600 bytes, ~8.0 entropy
+
+        fake_image = mock.MagicMock()
+        fake_image.get.side_effect = lambda key, *a: {
+            '/Subtype': '/Image',
+        }.get(key, a[0] if a else None)
+        fake_image.get_data.return_value = high_entropy_data
+
+        xobjects_dict = {'/Im0': fake_image}
+        resources_dict = {'/XObject': xobjects_dict}
+
+        fake_page = mock.MagicMock()
+        fake_page.get.return_value = resources_dict
+
+        fake_reader = mock.MagicMock()
+        fake_reader.pages = [fake_page]
+
+        with mock.patch("PyPDF2.PdfReader", return_value=fake_reader):
+            with mock.patch("builtins.open", mock.mock_open(read_data=b"%PDF")):
+                result = self.analyzer.detect_image_anomalies("/fake/path.pdf")
+                assert len(result) == 1
+                assert result[0]['entropy'] == 8.0
+                assert result[0]['page'] == 1
+                assert result[0]['risk'] == 'potential_steganography_or_malware'
